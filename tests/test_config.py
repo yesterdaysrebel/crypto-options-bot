@@ -16,8 +16,8 @@ from bot.config import (
     load_global_config,
     load_strategy_configs,
 )
-from bot.config.settings import BotMode, LogLevel
 from bot.config.loader import ConfigError
+from bot.config.settings import BotMode, LogLevel
 
 REPO_CONFIG = Path(__file__).resolve().parent.parent / "config"
 
