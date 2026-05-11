@@ -231,9 +231,7 @@ class ChainCache:
             chosen = atm
             reason = "atm"
         else:
-            idx_in_strike_order = next(
-                i for i, inst in enumerate(instruments) if inst.symbol == atm.symbol
-            )
+            idx_in_strike_order = next(i for i, inst in enumerate(instruments) if inst.symbol == atm.symbol)
             target_idx = idx_in_strike_order + offset
             if not 0 <= target_idx < len(instruments):
                 return None
