@@ -149,7 +149,10 @@ async def test_open_journal_includes_wallet_and_indicators(db: Database, tmp_pat
             premium_paid_inr=320.0,
             signal_id=sig.id,
             notes={
-                "wallet_at_entry": {"ts": "2026-05-14T14:00:00", "balances": [{"asset_symbol": "INR", "balance": 50000.0}]},
+                "wallet_at_entry": {
+                    "ts": "2026-05-14T14:00:00",
+                    "balances": [{"asset_symbol": "INR", "balance": 50000.0}],
+                },
                 "indicators_at_entry": {"spot": 100_000.0, "15m_n": 20},
                 "unrealized_pnl_inr": 12.5,
                 "peak_pnl_inr": 15.0,

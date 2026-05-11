@@ -161,7 +161,9 @@ def _render_trail_events(events: object) -> str:
     lines = []
     for i, ev in enumerate(events):
         if isinstance(ev, dict):
-            lines.append(f"{i + 1}. `{ev.get('ts')}` → stop ₹{_fmt(ev.get('new_stop'))} — {ev.get('notes', {})}")
+            lines.append(
+                f"{i + 1}. `{ev.get('ts')}` → stop ₹{_fmt(ev.get('new_stop'))} — {ev.get('notes', {})}"
+            )
         else:
             lines.append(f"{i + 1}. {ev!r}")
     return "\n".join(lines)
@@ -305,11 +307,7 @@ _STRUCTURED_NOTE_KEYS = frozenset(
 def _render_notes(notes: dict | None) -> str:
     if not notes:
         return "_no notes_"
-    items = [
-        f"- **{k}**: {v}"
-        for k, v in sorted(notes.items())
-        if k not in _STRUCTURED_NOTE_KEYS
-    ]
+    items = [f"- **{k}**: {v}" for k, v in sorted(notes.items()) if k not in _STRUCTURED_NOTE_KEYS]
     return "\n".join(items) if items else "_(structured fields rendered in sections above)_"
 
 
