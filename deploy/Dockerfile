@@ -13,19 +13,20 @@ RUN useradd --create-home --uid 10001 --shell /bin/bash bot
 
 WORKDIR /app
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md alembic.ini ./
 COPY bot ./bot
+COPY deploy/docker-entrypoint.sh /docker-entrypoint.sh
 
-RUN pip install --upgrade pip && pip install -e .
-
-RUN mkdir -p /app/data /app/reports /app/journals /app/logs \
+RUN pip install --upgrade pip && pip install -e . \
+    && chmod 0555 /docker-entrypoint.sh \
+    && mkdir -p /app/data /app/reports /app/journals /app/logs \
     && chown -R bot:bot /app
 
 USER bot
 
 EXPOSE 9091
 
-ENTRYPOINT ["/usr/bin/tini", "--"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/docker-entrypoint.sh"]
 CMD ["python", "-m", "bot"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
