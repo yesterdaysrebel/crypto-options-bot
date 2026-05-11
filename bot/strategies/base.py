@@ -11,7 +11,7 @@ import datetime as dt
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 from bot.config.models import (
     DirectionalConfig,
@@ -23,7 +23,7 @@ from bot.config.models import (
     VolStrangleConfig,
 )
 from bot.data.candles import Candle
-from bot.data.chain_cache import ChainCache, QuoteSnapshot, StrikeSelection
+from bot.data.chain_cache import ChainCache, OptionType, QuoteSnapshot, StrikeSelection
 
 
 class ActionType(StrEnum):
@@ -190,10 +190,11 @@ class Strategy(ABC):
         now: dt.datetime | None = None,
     ) -> StrikeSelection | None:
         """Convenience: route to delta picker if target_delta is set else ATM picker."""
+        opt = cast(OptionType, option_type)
         if target_delta is not None:
             return chain.get_strike_by_delta(
                 Underlying(underlying.value if isinstance(underlying, Underlying) else underlying),
-                option_type,  # type: ignore[arg-type]
+                opt,
                 bucket,
                 target_delta,
                 delta_min=delta_min,
@@ -204,7 +205,7 @@ class Strategy(ABC):
             return None
         return chain.get_atm_strike(
             underlying,
-            option_type,  # type: ignore[arg-type]
+            opt,
             bucket,
             spot_price,
             offset=atm_offset,

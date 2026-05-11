@@ -78,40 +78,59 @@ jobs:
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
       - name: Configure SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
+          set -euo pipefail
+          if [[ -z "${VPS_HOST}" ]]; then echo "::error::Secret VPS_HOST is empty — add it under Settings → Secrets (or environment production)"; exit 1; fi
+          if [[ -z "${VPS_USER}" ]]; then echo "::error::Secret VPS_USER is empty"; exit 1; fi
+          if [[ -z "${VPS_SSH_KEY}" ]]; then echo "::error::Secret VPS_SSH_KEY is empty"; exit 1; fi
           install -m 0700 -d ~/.ssh
-          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+          # printf preserves PEM newlines; echo can break OpenSSH parsing for some keys
+          printf '%s\n' "${VPS_SSH_KEY}" > ~/.ssh/ci_deploy_key
+          chmod 600 ~/.ssh/ci_deploy_key
+          ssh-keyscan -H "${VPS_HOST}" >> ~/.ssh/known_hosts
 
       - name: Copy deployment manifest
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
         run: |
-          scp -i ~/.ssh/id_ed25519 \
+          set -euo pipefail
+          scp -i ~/.ssh/ci_deploy_key \
               deploy/docker-compose.prod.yml \
               deploy/health-check.sh \
               deploy/rollback.sh \
               deploy/deploy.sh \
-              ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/opt/crypto-options-bot/
+              "${VPS_USER}@${VPS_HOST}:/opt/crypto-options-bot/"
 
       - name: Deploy on VPS
         id: deploy
         env:
           IMAGE: ${{ steps.image.outputs.image }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
         run: |
-          ssh -i ~/.ssh/id_ed25519 \
-              ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+          set -euo pipefail
+          ssh -i ~/.ssh/ci_deploy_key \
+              "${VPS_USER}@${VPS_HOST}" \
               "sudo IMAGE=$IMAGE bash /opt/crypto-options-bot/deploy.sh"
 
       - name: Health check (with auto-rollback)
         env:
           IMAGE: ${{ steps.image.outputs.image }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
         run: |
-          if ! ssh -i ~/.ssh/id_ed25519 \
-                   ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+          set -euo pipefail
+          if ! ssh -i ~/.ssh/ci_deploy_key \
+                   "${VPS_USER}@${VPS_HOST}" \
                    "sudo bash /opt/crypto-options-bot/health-check.sh"; then
             echo "Health check failed; rolling back."
-            ssh -i ~/.ssh/id_ed25519 \
-                ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            ssh -i ~/.ssh/ci_deploy_key \
+                "${VPS_USER}@${VPS_HOST}" \
                 "sudo bash /opt/crypto-options-bot/rollback.sh"
             exit 1
           fi
