@@ -1,0 +1,33 @@
+id: directional
+enabled: true
+enabled_live: false
+risk_weight: 0.60
+risk_per_trade_pct: 0.01
+max_lots_cap: 10
+underlyings: [BTC, ETH]
+
+entry:
+  timeframe: 15m
+  ema_fast: 9
+  ema_slow: 21
+  atr_period: 14
+  prior_bars: 4
+  breakout_atr_mult: 0.25
+
+expiry:
+  prefer: D1
+  fallback: D2
+  min_dte_hours: 2.0
+  d1_dte_threshold_hours: 4.0
+
+strike:
+  primary: ATM
+  fallback: OTM_PLUS_ONE
+
+exits:
+  target_r: 2.0
+  premium_drawdown_pct: 0.50
+  underlying_atr_mult_stop: 1.0
+  trail_breakeven_at_r: 1.0
+  trail_chandelier_atr_mult: 2.0
+  force_close_hours_before_expiry: 2.0

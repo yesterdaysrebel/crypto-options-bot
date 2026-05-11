@@ -1,0 +1,24 @@
+services:
+  bot:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: ${BOT_IMAGE:-crypto-options-bot:local}
+    container_name: crypto-options-bot
+    restart: unless-stopped
+    env_file:
+      - ${BOT_ENV_FILE:-../.env}
+    volumes:
+      - ${BOT_DATA_VOLUME:-../data}:/app/data
+      - ${BOT_REPORTS_VOLUME:-../reports}:/app/reports
+      - ${BOT_JOURNALS_VOLUME:-../journals}:/app/journals
+      - ${BOT_LOGS_VOLUME:-../logs}:/app/logs
+      - ${BOT_CONFIG_VOLUME:-../config}:/app/config:ro
+    ports:
+      - "127.0.0.1:9091:9091"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9091/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

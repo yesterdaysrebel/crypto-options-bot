@@ -1,0 +1,117 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to deploy (default: latest main)"
+        required: false
+        default: ""
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false  # never abort a half-finished deploy
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.meta.outputs.tags }}
+      sha: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.sha }}
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick image to deploy
+        id: image
+        run: |
+          # Prefer the SHA tag (immutable) over `latest`.
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA}"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Configure SSH
+        run: |
+          install -m 0700 -d ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Copy deployment manifest
+        run: |
+          scp -i ~/.ssh/id_ed25519 \
+              deploy/docker-compose.prod.yml \
+              deploy/health-check.sh \
+              deploy/rollback.sh \
+              deploy/deploy.sh \
+              ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/opt/crypto-options-bot/
+
+      - name: Deploy on VPS
+        id: deploy
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 \
+              ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+              "sudo IMAGE=$IMAGE bash /opt/crypto-options-bot/deploy.sh"
+
+      - name: Health check (with auto-rollback)
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          if ! ssh -i ~/.ssh/id_ed25519 \
+                   ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+                   "sudo bash /opt/crypto-options-bot/health-check.sh"; then
+            echo "Health check failed; rolling back."
+            ssh -i ~/.ssh/id_ed25519 \
+                ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+                "sudo bash /opt/crypto-options-bot/rollback.sh"
+            exit 1
+          fi

@@ -1,0 +1,47 @@
+"""SQLite-backed persistence layer (async via aiosqlite + SQLAlchemy 2.0)."""
+
+from bot.storage.db import Database, get_database, init_database
+from bot.storage.models import (
+    Base,
+    DailyPnl,
+    Decision,
+    DecisionKind,
+    DecisionReason,
+    ExitReason,
+    Instrument,
+    Leg,
+    LegStatus,
+    MarketSnapshot,
+    NavHistory,
+    Order,
+    OrderSide,
+    OrderState,
+    OrderType,
+    Signal,
+    Trade,
+    TradeStatus,
+)
+
+__all__ = [
+    "Base",
+    "DailyPnl",
+    "Database",
+    "Decision",
+    "DecisionKind",
+    "DecisionReason",
+    "ExitReason",
+    "Instrument",
+    "Leg",
+    "LegStatus",
+    "MarketSnapshot",
+    "NavHistory",
+    "Order",
+    "OrderSide",
+    "OrderState",
+    "OrderType",
+    "Signal",
+    "Trade",
+    "TradeStatus",
+    "get_database",
+    "init_database",
+]

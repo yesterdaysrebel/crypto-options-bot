@@ -1,0 +1,24 @@
+nav_inr: 50000
+usd_inr_rate: 85.0
+
+risk_caps:
+  daily_loss_pct: 0.03
+  weekly_loss_pct: 0.06
+  lifetime_dd_pct: 0.15
+
+trading_window:
+  start_ist: "09:00"
+  end_ist: "22:00"
+  expiry_force_close_ist: "16:45"
+
+concurrency:
+  max_total: 3
+  max_per_strategy: 1
+
+execution:
+  spread_filter_max_pct: 0.08
+  maker_limit_timeout_seconds: 30
+  slip_bps_directional: 50
+  slip_bps_strangle: 50
+  slip_bps_condor: 100
+  trail_update_throttle_seconds: 5

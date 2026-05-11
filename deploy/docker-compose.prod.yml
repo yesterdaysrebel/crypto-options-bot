@@ -1,0 +1,45 @@
+version: "3.9"
+
+# Production docker compose for AWS Lightsail Mumbai VPS.
+# Differences vs docker-compose.yml:
+#   * Pulls the image from ghcr.io (set by deploy.sh via `IMAGE`)
+#   * Mounts persistent dirs from /opt/crypto-options-bot/{data,reports,...}
+#   * Reads /opt/crypto-options-bot/.env for runtime secrets (chmod 600, root:bot)
+#   * Pins log driver + max size so the 40 GB Lightsail disk doesn't fill up
+#   * Healthcheck + restart policy match systemd watcher
+
+services:
+  bot:
+    image: ${IMAGE:-ghcr.io/yesterdays-rebel/crypto-options-bot:latest}
+    container_name: crypto-options-bot
+    restart: unless-stopped
+    env_file:
+      - /opt/crypto-options-bot/.env
+    environment:
+      TZ: Asia/Kolkata
+      MODE: ${MODE:-dry}
+    volumes:
+      - /opt/crypto-options-bot/data:/app/data
+      - /opt/crypto-options-bot/reports:/app/reports
+      - /opt/crypto-options-bot/journals:/app/journals
+      - /opt/crypto-options-bot/logs:/app/logs
+      - /opt/crypto-options-bot/runtime:/app/runtime
+      - /opt/crypto-options-bot/config:/app/config:ro
+    ports:
+      - "127.0.0.1:9091:9091"
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9091/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: "0.75"
