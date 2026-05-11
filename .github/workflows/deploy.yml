@@ -88,10 +88,15 @@ jobs:
           if [[ -z "${VPS_USER}" ]]; then echo "::error::Secret VPS_USER is empty"; exit 1; fi
           if [[ -z "${VPS_SSH_KEY}" ]]; then echo "::error::Secret VPS_SSH_KEY is empty"; exit 1; fi
           install -m 0700 -d ~/.ssh
+          touch ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
           # printf preserves PEM newlines; echo can break OpenSSH parsing for some keys
           printf '%s\n' "${VPS_SSH_KEY}" > ~/.ssh/ci_deploy_key
           chmod 600 ~/.ssh/ci_deploy_key
-          ssh-keyscan -H "${VPS_HOST}" >> ~/.ssh/known_hosts
+          # ssh-keyscan can fail (wrong host, firewall, Lightsail network rules) — do not fail the job
+          if ! ssh-keyscan -T 30 -H "${VPS_HOST}" >> ~/.ssh/known_hosts 2>/dev/null; then
+            echo "::warning::ssh-keyscan could not reach ${VPS_HOST}. scp/ssh will use StrictHostKeyChecking=accept-new."
+          fi
 
       - name: Copy deployment manifest
         env:
@@ -99,7 +104,8 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
         run: |
           set -euo pipefail
-          scp -i ~/.ssh/ci_deploy_key \
+          SSH_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=30"
+          scp ${SSH_OPTS} -i ~/.ssh/ci_deploy_key \
               deploy/docker-compose.prod.yml \
               deploy/health-check.sh \
               deploy/rollback.sh \
@@ -114,7 +120,8 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/ci_deploy_key \
+          SSH_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=30"
+          ssh ${SSH_OPTS} -i ~/.ssh/ci_deploy_key \
               "${VPS_USER}@${VPS_HOST}" \
               "sudo IMAGE=$IMAGE bash /opt/crypto-options-bot/deploy.sh"
 
@@ -125,11 +132,12 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
         run: |
           set -euo pipefail
-          if ! ssh -i ~/.ssh/ci_deploy_key \
+          SSH_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=30"
+          if ! ssh ${SSH_OPTS} -i ~/.ssh/ci_deploy_key \
                    "${VPS_USER}@${VPS_HOST}" \
                    "sudo bash /opt/crypto-options-bot/health-check.sh"; then
             echo "Health check failed; rolling back."
-            ssh -i ~/.ssh/ci_deploy_key \
+            ssh ${SSH_OPTS} -i ~/.ssh/ci_deploy_key \
                 "${VPS_USER}@${VPS_HOST}" \
                 "sudo bash /opt/crypto-options-bot/rollback.sh"
             exit 1

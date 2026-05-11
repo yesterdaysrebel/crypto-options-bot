@@ -26,11 +26,12 @@ htmlcov/
 .env.*.local
 config/local.yaml
 
-data/
-reports/
-journals/
-logs/
-snapshots/
+# Runtime dirs at repo root only (plain `data/` would ignore `bot/data/` Python package)
+/data/
+/reports/
+/journals/
+/logs/
+/snapshots/
 *.sqlite
 *.sqlite-*
 *.db
