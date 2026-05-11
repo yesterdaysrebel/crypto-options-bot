@@ -16,6 +16,7 @@ from bot.config import (
     load_global_config,
     load_strategy_configs,
 )
+from bot.config.settings import BotMode, LogLevel
 from bot.config.loader import ConfigError
 
 REPO_CONFIG = Path(__file__).resolve().parent.parent / "config"
@@ -93,6 +94,17 @@ def test_settings_load_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.is_live
     assert s.nav_inr_override == 60000.0
     assert s.delta_api_key == "test-key"
+
+
+def test_settings_accepts_bootstrap_env_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    """VPS placeholder .env uses LOG_LEVEL; compose may set MODE (not BOT_MODE / BOT_LOG_LEVEL)."""
+    monkeypatch.delenv("BOT_MODE", raising=False)
+    monkeypatch.delenv("BOT_LOG_LEVEL", raising=False)
+    monkeypatch.setenv("MODE", "dry")
+    monkeypatch.setenv("LOG_LEVEL", "DEBUG")
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.mode == BotMode.DRY
+    assert s.log_level == LogLevel.DEBUG
 
 
 def test_load_all_overrides_nav_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

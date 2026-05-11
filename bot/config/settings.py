@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import StrEnum
 from pathlib import Path
 
-from pydantic import Field, HttpUrl
+from pydantic import AliasChoices, Field, HttpUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,8 +25,14 @@ class LogLevel(StrEnum):
 class Settings(BaseSettings):
     """Process-wide settings loaded from environment / .env."""
 
-    mode: BotMode = Field(default=BotMode.DRY, validation_alias="BOT_MODE")
-    log_level: LogLevel = Field(default=LogLevel.INFO, validation_alias="BOT_LOG_LEVEL")
+    mode: BotMode = Field(
+        default=BotMode.DRY,
+        validation_alias=AliasChoices("BOT_MODE", "MODE"),
+    )
+    log_level: LogLevel = Field(
+        default=LogLevel.INFO,
+        validation_alias=AliasChoices("BOT_LOG_LEVEL", "LOG_LEVEL"),
+    )
 
     data_dir: Path = Field(default=Path("./data"), validation_alias="BOT_DATA_DIR")
     reports_dir: Path = Field(default=Path("./reports"), validation_alias="BOT_REPORTS_DIR")
@@ -56,7 +62,7 @@ class Settings(BaseSettings):
     delta_ws_mps: int = Field(default=20, validation_alias="DELTA_WS_MPS", ge=1)
 
     prom_textfile_path: Path = Field(
-        default=Path("/var/lib/node_exporter/textfile_collector/bot.prom"),
+        default=Path("./runtime/metrics/bot.prom"),
         validation_alias="PROM_TEXTFILE_PATH",
     )
     prom_http_port: int = Field(default=9091, validation_alias="PROM_HTTP_PORT", ge=1024, le=65535)

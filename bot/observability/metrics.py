@@ -3,7 +3,9 @@
 Why a textfile collector when we already expose /metrics?
    * /metrics on the bot HTTP port is only reachable while the bot is up.
    * If the bot is unhealthy or restarting, Prometheus shows stale "no data".
-   * Node exporter's textfile collector reads `*.prom` files written by the bot itself.
+   * Node exporter's textfile collector can read `*.prom` files (set `PROM_TEXTFILE_PATH`
+     to that dir on hosts where the bot user may write there; Docker default is under
+     `./runtime/metrics/` which matches the prod volume mount).
      This means even a crashed bot leaves *some* metrics behind, dating its last write.
      Combined with `bot_last_tick_seconds`, it makes "is the bot alive?" trivial.
 """
