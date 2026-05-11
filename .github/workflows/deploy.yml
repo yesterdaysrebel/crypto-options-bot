@@ -90,9 +90,18 @@ jobs:
           install -m 0700 -d ~/.ssh
           touch ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
-          # printf preserves PEM newlines; echo can break OpenSSH parsing for some keys
-          printf '%s\n' "${VPS_SSH_KEY}" > ~/.ssh/ci_deploy_key
+          # Strip Windows CR; keep newlines. Paste the RAW private key (-----BEGIN … KEY-----), not the .pub file.
+          printf '%s\n' "${VPS_SSH_KEY}" | tr -d '\r' > ~/.ssh/ci_deploy_key
           chmod 600 ~/.ssh/ci_deploy_key
+          if ! grep -qE '^-----BEGIN (OPENSSH|RSA|EC|DSA) PRIVATE KEY-----' ~/.ssh/ci_deploy_key; then
+            echo "::error::VPS_SSH_KEY must be a private key starting with -----BEGIN … PRIVATE KEY----- (GitHub multiline secret). Do not paste the .pub file."
+            exit 1
+          fi
+          if ! ssh-keygen -lf ~/.ssh/ci_deploy_key >/tmp/ci_key_check.txt 2>&1; then
+            echo "::error::VPS_SSH_KEY is not loadable (OpenSSL/libcrypto). Common causes: truncated paste, extra quotes, passphrase-protected key, or stray characters."
+            cat /tmp/ci_key_check.txt >&2
+            exit 1
+          fi
           # ssh-keyscan can fail (wrong host, firewall, Lightsail network rules) — do not fail the job
           if ! ssh-keyscan -T 30 -H "${VPS_HOST}" >> ~/.ssh/known_hosts 2>/dev/null; then
             echo "::warning::ssh-keyscan could not reach ${VPS_HOST}. scp/ssh will use StrictHostKeyChecking=accept-new."
