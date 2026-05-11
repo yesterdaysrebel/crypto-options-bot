@@ -37,12 +37,12 @@ from bot.observability.logging_setup import configure_logging
 from bot.observability.metrics import MetricsRegistry, TextfileCollector
 from bot.observability.server import MetricsServer
 from bot.risk.caps import NavTracker
+from bot.risk.manager import RiskDecision, RiskManager, SizingResult, TradeAccountingSnapshot
 from bot.runtime.trade_tracking import (
     indicator_snapshot_for_trade,
     indicator_snapshot_for_underlying,
     refresh_all_open_trades,
 )
-from bot.risk.manager import RiskManager, RiskDecision, SizingResult, TradeAccountingSnapshot
 from bot.storage.db import Database, get_database
 from bot.storage.models import (
     DecisionKind,
@@ -664,10 +664,8 @@ async def run_trading_engine() -> None:
                 metrics.rest_errors_total.labels(exc.endpoint or "unknown", str(exc.status_code or 0)).inc()
             except Exception:
                 logger.exception("chain refresh failed")
-            try:
+            with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(stop.wait(), timeout=15.0)
-            except TimeoutError:
-                pass
             if stop.is_set():
                 break
 
@@ -709,10 +707,8 @@ async def run_trading_engine() -> None:
         nonlocal last_daily_ist_date
         ist = dt.timezone(dt.timedelta(hours=5, minutes=30))
         while not stop.is_set():
-            try:
+            with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(stop.wait(), timeout=60.0)
-            except TimeoutError:
-                pass
             if stop.is_set():
                 break
             now_ist = dt.datetime.now(dt.UTC).astimezone(ist)

@@ -34,7 +34,7 @@ def indicator_snapshot_for_trade(trade: Trade, market: MarketState) -> dict[str,
 
 
 def estimate_unrealized_pnl_inr(trade: Trade, legs: list[Leg], chain: ChainCache) -> float | None:
-    """Single long-premium style leg: (mid − entry) × lots. Multi-leg returns None (extend later)."""
+    """Single long-premium style leg: (mid - entry) * lots. Multi-leg returns None (extend later)."""
     if len(legs) != 1:
         return None
     leg = legs[0]

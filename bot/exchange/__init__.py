@@ -9,10 +9,10 @@ from bot.exchange.ws import DeltaWebSocketClient, Subscription, WsStats
 __all__ = [
     "DeltaRestClient",
     "DeltaRestError",
-    "fetch_wallet_snapshot",
     "DeltaWebSocketClient",
     "RequestSigner",
     "Subscription",
     "TokenBucket",
     "WsStats",
+    "fetch_wallet_snapshot",
 ]
