@@ -13,8 +13,8 @@ CURRENT_FILE="${RELEASES_DIR}/current-image.txt"
 PREVIOUS_FILE="${RELEASES_DIR}/previous-image.txt"
 
 if [[ ! -f "${PREVIOUS_FILE}" ]]; then
-    echo "[rollback] no previous-image.txt to roll back to" >&2
-    exit 1
+    echo "[rollback] no previous-image.txt (first deploy or never recorded) — nothing to revert" >&2
+    exit 0
 fi
 
 PREV=$(cat "${PREVIOUS_FILE}")
