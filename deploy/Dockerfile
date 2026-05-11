@@ -15,6 +15,7 @@ WORKDIR /app
 
 COPY pyproject.toml README.md alembic.ini ./
 COPY bot ./bot
+COPY config ./config
 COPY deploy/docker-entrypoint.sh /docker-entrypoint.sh
 COPY deploy/docker-entrypoint-bot.sh /docker-entrypoint-bot.sh
 

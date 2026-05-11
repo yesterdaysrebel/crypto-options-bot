@@ -198,6 +198,23 @@ fetch_deploy_manifests_from_github() {
         fi
     done
     chmod 0755 "${APP_HOME}/deploy.sh" "${APP_HOME}/health-check.sh" "${APP_HOME}/rollback.sh"
+
+    install -d -o "${APP_USER}" -g "${APP_USER}" -m 0755 \
+        "${APP_HOME}/config/strategies"
+    mkdir -p "${tmp}/config/strategies"
+    for rel in \
+        config/global.yaml \
+        config/strategies/directional.yaml \
+        config/strategies/iron_condor.yaml \
+        config/strategies/vol_strangle.yaml; do
+        if curl -fsSL "${base}/${rel}" -o "${tmp}/${rel}"; then
+            install -m 0644 -o "${APP_USER}" -g "${APP_USER}" "${tmp}/${rel}" "${APP_HOME}/${rel}"
+            log "  wrote ${APP_HOME}/${rel}"
+        else
+            log "ERROR: failed to download ${base}/${rel}"
+            return 1
+        fi
+    done
 }
 
 warn_if_deploy_files_missing() {
