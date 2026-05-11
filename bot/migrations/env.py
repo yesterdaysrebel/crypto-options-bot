@@ -20,7 +20,10 @@ target_metadata = Base.metadata
 
 def get_url() -> str:
     """Prefer DB_URL so migrations match runtime Settings (docker .env, CI, local)."""
-    return os.environ.get("DB_URL") or config.get_main_option("sqlalchemy.url")
+    url = os.environ.get("DB_URL") or config.get_main_option("sqlalchemy.url")
+    if not url:
+        raise RuntimeError("Database URL missing: set DB_URL or sqlalchemy.url in alembic.ini")
+    return url
 
 
 def run_migrations_offline() -> None:

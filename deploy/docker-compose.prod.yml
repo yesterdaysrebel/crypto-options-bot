@@ -1,5 +1,3 @@
-version: "3.9"
-
 # Production docker compose for AWS Lightsail Mumbai VPS.
 # Differences vs docker-compose.yml:
 #   * Pulls the image from ghcr.io (set by deploy.sh via `IMAGE`)

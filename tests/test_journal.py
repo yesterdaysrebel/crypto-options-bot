@@ -115,10 +115,58 @@ async def test_journal_writes_file_with_expected_sections(db: Database, tmp_path
     assert "## Signal (Entry Context)" in content
     assert "## Legs" in content
     assert "## Orders" in content
+    assert "## Trade outcome" in content
+    assert "## Wallet" in content
     assert "## Notes" in content
     assert "directional-1-0-entry-abc" in content
     assert "ema_fast" in content
     assert "trailing_stop" in content
+
+
+@pytest.mark.asyncio
+async def test_open_journal_includes_wallet_and_indicators(db: Database, tmp_path: Path) -> None:
+    async with db.session() as session:
+        sig = Signal(
+            strategy_id="directional",
+            underlying="BTC",
+            side="long",
+            intended_symbol="C-BTC-100000-150526",
+            intended_expiry=dt.datetime(2026, 5, 15, 17, 30),
+            intended_strike=100_000.0,
+            intended_lots=1,
+            intended_premium_inr=320.0,
+            feature_vector={"spot": 100_000.0},
+        )
+        session.add(sig)
+        await session.flush()
+        trade = Trade(
+            strategy_id="directional",
+            underlying="BTC",
+            entry_ts=dt.datetime(2026, 5, 14, 14, 0),
+            status=TradeStatus.OPEN.value,
+            mode="dry",
+            lots=1,
+            premium_paid_inr=320.0,
+            signal_id=sig.id,
+            notes={
+                "wallet_at_entry": {"ts": "2026-05-14T14:00:00", "balances": [{"asset_symbol": "INR", "balance": 50000.0}]},
+                "indicators_at_entry": {"spot": 100_000.0, "15m_n": 20},
+                "unrealized_pnl_inr": 12.5,
+                "peak_pnl_inr": 15.0,
+            },
+        )
+        session.add(trade)
+        await session.flush()
+        open_tid = trade.id
+    journal = TradeJournal(db, journals_dir=tmp_path)
+    path = await journal.write_open_trade(open_tid)
+    assert path is not None
+    assert path.name.endswith("_open.md")
+    text = path.read_text(encoding="utf-8")
+    assert "## Wallet (at entry)" in text
+    assert "INR" in text
+    assert "## Indicators (at entry)" in text
+    assert "15m_n" in text
 
 
 @pytest.mark.asyncio

@@ -27,6 +27,25 @@ class TradeJournal:
         self._journals_dir = journals_dir
         self._journals_dir.mkdir(parents=True, exist_ok=True)
 
+    async def write_open_trade(self, trade_id: int) -> Path | None:
+        """Write `.../<strategy>__<id>_open.md` while the trade is still open (entry + wallet + indicators)."""
+        async with self._db.session() as session:
+            stmt = select(Trade).where(Trade.id == trade_id).options(selectinload(Trade.legs))
+            trade = (await session.execute(stmt)).scalar_one_or_none()
+            if trade is None:
+                return None
+            signal = None
+            if trade.signal_id is not None:
+                signal = (
+                    await session.execute(select(Signal).where(Signal.id == trade.signal_id))
+                ).scalar_one_or_none()
+        date_str = trade.entry_ts.date().isoformat()
+        out_dir = self._journals_dir / date_str
+        out_dir.mkdir(parents=True, exist_ok=True)
+        path = out_dir / f"{trade.strategy_id}__{trade.id}_open.md"
+        path.write_text(_render_open(trade, signal), encoding="utf-8")
+        return path
+
     async def write_for_trade(self, trade_id: int) -> Path | None:
         async with self._db.session() as session:
             stmt = select(Trade).where(Trade.id == trade_id).options(selectinload(Trade.legs))
@@ -50,6 +69,102 @@ class TradeJournal:
         path = out_dir / filename
         path.write_text(_render(trade, signal, orders), encoding="utf-8")
         return path
+
+
+def _render_open(trade: Trade, signal: Signal | None) -> str:
+    notes = trade.notes or {}
+    lines = [
+        f"# Open trade #{trade.id} — {trade.strategy_id}",
+        "",
+        "## Summary",
+        "",
+        f"- Underlying: {trade.underlying}",
+        f"- Lots: {trade.lots}",
+        f"- Mode: {trade.mode}",
+        f"- Status: {trade.status}",
+        f"- Entry: {trade.entry_ts.isoformat() if trade.entry_ts else '—'}",
+        "",
+        "## Wallet (at entry)",
+        "",
+        _render_wallet_block(notes.get("wallet_at_entry")),
+        "",
+        "## Indicators (at entry)",
+        "",
+        _render_dict_block(notes.get("indicators_at_entry")),
+        "",
+        "## Latest snapshot (from bot ticks)",
+        "",
+        f"- Unrealised PnL (est.): ₹{_fmt(notes.get('unrealized_pnl_inr'))}",
+        f"- Peak PnL (est.): ₹{_fmt(notes.get('peak_pnl_inr'))}",
+        f"- Trail stop: ₹{_fmt(notes.get('current_trail_stop_price'))}",
+        "",
+        "### Last indicator snapshot",
+        "",
+        _render_dict_block(notes.get("last_indicator_snapshot")),
+        "",
+        "### Last wallet tick",
+        "",
+        _render_wallet_block(notes.get("wallet_last_tick")),
+        "",
+    ]
+    if signal is not None:
+        lines += [
+            "## Signal (Entry Context)",
+            "",
+            f"- Symbol: {signal.intended_symbol}",
+            f"- Strike: {_fmt(signal.intended_strike)}",
+            "",
+            "### Feature vector",
+            "",
+        ]
+        fv = signal.feature_vector or {}
+        if fv:
+            for k, v in sorted(fv.items()):
+                lines.append(f"- `{k}`: {v}")
+        else:
+            lines.append("_no features captured_")
+        lines.append("")
+    lines += ["## Trail events", "", _render_trail_events(notes.get("trail_events")), ""]
+    lines += ["## Raw notes", "", _render_notes(notes), ""]
+    return "\n".join(lines) + "\n"
+
+
+def _render_wallet_block(obj: object) -> str:
+    if obj is None:
+        return "_no wallet data (missing API keys or request failed)_"
+    if isinstance(obj, dict) and obj.get("error"):
+        return f"_error_: `{obj.get('error')}`"
+    if not isinstance(obj, dict):
+        return str(obj)
+    lines = [f"- Captured: `{obj.get('ts', '—')}`"]
+    for b in obj.get("balances") or []:
+        if not isinstance(b, dict):
+            continue
+        lines.append(
+            f"- **{b.get('asset_symbol', '?')}**: balance={b.get('balance')} "
+            f"available={b.get('available_balance')}"
+        )
+    return "\n".join(lines) if len(lines) > 1 else "_empty balances_"
+
+
+def _render_dict_block(d: dict | None) -> str:
+    if not d:
+        return "_none_"
+    return "\n".join(f"- `{k}`: {v}" for k, v in sorted(d.items()))
+
+
+def _render_trail_events(events: object) -> str:
+    if not events:
+        return "_no trail adjustments yet_"
+    if not isinstance(events, list):
+        return str(events)
+    lines = []
+    for i, ev in enumerate(events):
+        if isinstance(ev, dict):
+            lines.append(f"{i + 1}. `{ev.get('ts')}` → stop ₹{_fmt(ev.get('new_stop'))} — {ev.get('notes', {})}")
+        else:
+            lines.append(f"{i + 1}. {ev!r}")
+    return "\n".join(lines)
 
 
 def _render(trade: Trade, signal: Signal | None, orders: list[Order]) -> str:
@@ -80,6 +195,40 @@ def _render(trade: Trade, signal: Signal | None, orders: list[Order]) -> str:
         f"- Peak PnL: ₹{_fmt(trade.peak_pnl_inr)}",
         f"- Trough PnL: ₹{_fmt(trade.trough_pnl_inr)}",
         f"- IV entry → exit: {_fmt(trade.entry_iv, ndigits=2)} → {_fmt(trade.exit_iv, ndigits=2)}",
+        "",
+    ]
+    notes = trade.notes or {}
+    lines += ["## Trade outcome", ""]
+    if isinstance(notes.get("trade_outcome"), dict):
+        lines.append(_render_dict_block(notes["trade_outcome"]))
+    else:
+        lines.append(f"- Realised (final): ₹{_fmt(trade.realised_pnl_inr)}")
+        lines.append(f"- Exit: `{trade.exit_reason or '—'}`")
+    lines += [
+        "",
+        "## Wallet",
+        "",
+        "### At entry",
+        "",
+        _render_wallet_block(notes.get("wallet_at_entry")),
+        "",
+        "### At exit",
+        "",
+        _render_wallet_block(notes.get("wallet_at_exit")),
+        "",
+        "## Indicators",
+        "",
+        "### At entry",
+        "",
+        _render_dict_block(notes.get("indicators_at_entry")),
+        "",
+        "### At exit",
+        "",
+        _render_dict_block(notes.get("indicators_at_exit")),
+        "",
+        "## Trail events",
+        "",
+        _render_trail_events(notes.get("trail_events")),
         "",
     ]
     if signal is not None:
@@ -129,11 +278,39 @@ def _render(trade: Trade, signal: Signal | None, orders: list[Order]) -> str:
     return "\n".join(lines) + "\n"
 
 
+_STRUCTURED_NOTE_KEYS = frozenset(
+    {
+        "wallet_at_entry",
+        "wallet_at_exit",
+        "wallet_last_tick",
+        "indicators_at_entry",
+        "indicators_at_exit",
+        "last_indicator_snapshot",
+        "trade_outcome",
+        "trail_events",
+        "unrealized_pnl_inr",
+        "peak_pnl_inr",
+        "current_trail_stop_price",
+        "current_stop_price",
+        "entry_underlying_price",
+        "entry_atr",
+        "entry_fill_prices",
+        "entry_net_premium_inr",
+        "trade_lifecycle",
+        "rationale",
+    }
+)
+
+
 def _render_notes(notes: dict | None) -> str:
     if not notes:
         return "_no notes_"
-    items = [f"- **{k}**: {v}" for k, v in sorted(notes.items())]
-    return "\n".join(items)
+    items = [
+        f"- **{k}**: {v}"
+        for k, v in sorted(notes.items())
+        if k not in _STRUCTURED_NOTE_KEYS
+    ]
+    return "\n".join(items) if items else "_(structured fields rendered in sections above)_"
 
 
 def _fmt(value: float | int | None, *, ndigits: int = 2) -> str:
