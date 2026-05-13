@@ -122,11 +122,12 @@ jobs:
               deploy/health-check.sh \
               deploy/rollback.sh \
               deploy/deploy.sh \
+              deploy/validate-runtime.sh \
               "${VPS_USER}@${VPS_HOST}:${REMOTE_TMP}/"
           scp ${SSH_OPTS} -i ~/.ssh/ci_deploy_key -r \
               config \
               "${VPS_USER}@${VPS_HOST}:${REMOTE_TMP}/"
-          ssh ${SSH_OPTS} -i ~/.ssh/ci_deploy_key "${VPS_USER}@${VPS_HOST}" 'set -euo pipefail; REMOTE_TMP=/tmp/gh-deploy-crypto-bot-staging; APP=/opt/crypto-options-bot; sudo install -o bot -g bot -m 0644 "${REMOTE_TMP}/docker-compose.prod.yml" "${APP}/docker-compose.prod.yml"; for f in deploy.sh health-check.sh rollback.sh; do sudo install -o bot -g bot -m 0755 "${REMOTE_TMP}/${f}" "${APP}/${f}"; done; sudo install -d -o bot -g bot -m 0755 "${APP}/config/strategies"; sudo rsync -a --chown=bot:bot "${REMOTE_TMP}/config/" "${APP}/config/"; rm -rf "${REMOTE_TMP}"'
+          ssh ${SSH_OPTS} -i ~/.ssh/ci_deploy_key "${VPS_USER}@${VPS_HOST}" 'set -euo pipefail; REMOTE_TMP=/tmp/gh-deploy-crypto-bot-staging; APP=/opt/crypto-options-bot; sudo install -o bot -g bot -m 0644 "${REMOTE_TMP}/docker-compose.prod.yml" "${APP}/docker-compose.prod.yml"; for f in deploy.sh health-check.sh rollback.sh validate-runtime.sh; do sudo install -o bot -g bot -m 0755 "${REMOTE_TMP}/${f}" "${APP}/${f}"; done; sudo install -d -o bot -g bot -m 0755 "${APP}/config/strategies"; sudo rsync -a --chown=bot:bot "${REMOTE_TMP}/config/" "${APP}/config/"; rm -rf "${REMOTE_TMP}"'
 
       - name: Deploy on VPS
         id: deploy

@@ -187,7 +187,8 @@ fetch_deploy_manifests_from_github() {
         deploy/docker-compose.prod.yml \
         deploy/deploy.sh \
         deploy/health-check.sh \
-        deploy/rollback.sh; do
+        deploy/rollback.sh \
+        deploy/validate-runtime.sh; do
         local name="${rel#deploy/}"
         if curl -fsSL "${base}/${rel}" -o "${tmp}/${name}"; then
             install -m 0644 -o "${APP_USER}" -g "${APP_USER}" "${tmp}/${name}" "${APP_HOME}/${name}"
@@ -197,7 +198,7 @@ fetch_deploy_manifests_from_github() {
             return 1
         fi
     done
-    chmod 0755 "${APP_HOME}/deploy.sh" "${APP_HOME}/health-check.sh" "${APP_HOME}/rollback.sh"
+    chmod 0755 "${APP_HOME}/deploy.sh" "${APP_HOME}/health-check.sh" "${APP_HOME}/rollback.sh" "${APP_HOME}/validate-runtime.sh"
 
     install -d -o "${APP_USER}" -g "${APP_USER}" -m 0755 \
         "${APP_HOME}/config/strategies"
