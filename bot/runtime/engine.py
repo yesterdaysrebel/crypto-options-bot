@@ -689,6 +689,8 @@ async def run_trading_engine() -> None:
             u = _mark_underlying(sym)
             if u is not None:
                 mp = msg.get("mark_price")
+                if mp is None:
+                    mp = msg.get("spot_price") or msg.get("underlying_mark")
                 if mp is not None:
                     try:
                         px = float(mp)

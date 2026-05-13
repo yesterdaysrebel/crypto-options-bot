@@ -61,6 +61,7 @@ class DecisionReason(StrEnum):
     STRANGLE_PREMIUM_ABOVE_RISK_BUDGET = "strangle_premium_above_risk_budget"
     NO_ACCEPTABLE_STRIKE = "no_acceptable_strike"
     OUTSIDE_TRADING_WINDOW = "outside_trading_window"
+    MISSING_SPOT = "missing_spot"
     STRATEGY_MAX_CONCURRENT = "strategy_max_concurrent"
     GLOBAL_MAX_CONCURRENT = "global_max_concurrent"
     DAILY_CAP_TRIPPED = "daily_cap_tripped"
