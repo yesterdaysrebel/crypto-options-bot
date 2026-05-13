@@ -116,7 +116,7 @@ else
         if [[ "${STRICT_MARKS}" == "1" ]]; then
             fail "/health marks is empty (STRICT_MARKS=1)"
         else
-            warn "/health marks is empty — directional/vol may lack spot until WS fields are fixed/deployed"
+            warn "/health marks is empty — after deploy, spot comes from v2/ticker BTCUSD/ETHUSD; if still empty, capture one WS frame"
         fi
     else
         pass "/health marks non-empty"
@@ -186,10 +186,11 @@ if [[ "${SKIP_SQLITE}" != "1" ]]; then
             fail "could not read decisions count"
         fi
         ic=$(sqlite3 "${db}" "SELECT COUNT(*) FROM instruments;" 2>/dev/null || echo 0)
-        if [[ "${ic}" =~ ^[0-9]+$ ]] && (( ic > 0 )); then
-            pass "instruments row count: ${ic} (>0)"
+        # Chain instruments are held in-memory (ChainCache); the `instruments` table may stay empty in v1.
+        if [[ "${ic}" =~ ^[0-9]+$ ]]; then
+            pass "instruments SQL rows: ${ic} (informational; chain size is /health chain_instruments)"
         else
-            warn "instruments count low or unreadable: ${ic}"
+            warn "could not read instruments count"
         fi
     fi
 fi

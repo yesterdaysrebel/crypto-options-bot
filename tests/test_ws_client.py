@@ -81,13 +81,13 @@ def _settings_for_port(port: int) -> Settings:
 
 @pytest.mark.asyncio
 async def test_subscribe_payload_format_and_message_delivery(server: _FakeServer) -> None:
-    server.queue_send({"type": "v2/ticker", "symbol": "MARK:BTCUSD", "mark_price": "100000"})
+    server.queue_send({"type": "v2/ticker", "symbol": "BTCUSD", "mark_price": "100000"})
     port = await server.start()
     settings = _settings_for_port(port)
 
     client = DeltaWebSocketClient(
         settings,
-        [Subscription("v2/ticker", ("MARK:BTCUSD", "MARK:ETHUSD"))],
+        [Subscription("v2/ticker", ("BTCUSD", "ETHUSD"))],
         initial_backoff=0.05,
         max_backoff=0.10,
         ping_interval=60,
@@ -101,11 +101,11 @@ async def test_subscribe_payload_format_and_message_delivery(server: _FakeServer
                 await asyncio.sleep(0.02)
             msg = await asyncio.wait_for(client.queue.get(), timeout=2.0)
         assert msg["type"] == "v2/ticker"
-        assert msg["symbol"] == "MARK:BTCUSD"
+        assert msg["symbol"] == "BTCUSD"
         sub = server.received_subscribes[0]
         assert sub["type"] == "subscribe"
         channels = sub["payload"]["channels"]
-        assert channels == [{"name": "v2/ticker", "symbols": ["MARK:BTCUSD", "MARK:ETHUSD"]}]
+        assert channels == [{"name": "v2/ticker", "symbols": ["BTCUSD", "ETHUSD"]}]
         assert server.received_heartbeats >= 1
     finally:
         client.stop()
@@ -116,14 +116,14 @@ async def test_subscribe_payload_format_and_message_delivery(server: _FakeServer
 
 @pytest.mark.asyncio
 async def test_reconnects_on_dropped_connection(server: _FakeServer) -> None:
-    server.queue_send({"type": "v2/ticker", "symbol": "MARK:BTCUSD"})
+    server.queue_send({"type": "v2/ticker", "symbol": "BTCUSD"})
     server.drop_after(2)
     port = await server.start()
     settings = _settings_for_port(port)
 
     client = DeltaWebSocketClient(
         settings,
-        [Subscription("v2/ticker", ("MARK:BTCUSD",))],
+        [Subscription("v2/ticker", ("BTCUSD",))],
         initial_backoff=0.05,
         max_backoff=0.10,
         ping_interval=60,
@@ -154,13 +154,13 @@ async def test_empty_subscriptions_raise() -> None:
 @pytest.mark.asyncio
 async def test_heartbeat_messages_are_filtered_out(server: _FakeServer) -> None:
     server.queue_send({"type": "heartbeat", "ts": 1700000000})
-    server.queue_send({"type": "v2/ticker", "symbol": "MARK:BTCUSD"})
+    server.queue_send({"type": "v2/ticker", "symbol": "BTCUSD"})
     port = await server.start()
     settings = _settings_for_port(port)
 
     client = DeltaWebSocketClient(
         settings,
-        [Subscription("v2/ticker", ("MARK:BTCUSD",))],
+        [Subscription("v2/ticker", ("BTCUSD",))],
         initial_backoff=0.05,
         ping_interval=60,
         ping_timeout=60,

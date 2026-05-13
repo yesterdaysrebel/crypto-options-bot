@@ -165,9 +165,14 @@ def _quote_from_ws_ticker(msg: dict[str, Any]) -> QuoteSnapshot | None:
 
 
 def _mark_underlying(symbol: str) -> Underlying | None:
-    if symbol == "MARK:BTCUSD":
+    """Map Delta ``v2/ticker`` contract symbol to BTC/ETH for index marks.
+
+    Delta India docs subscribe with ``BTCUSD`` / ``ETHUSD``; ``MARK:*`` may appear on
+    some feeds. Both shapes are accepted here.
+    """
+    if symbol in ("MARK:BTCUSD", "BTCUSD"):
         return Underlying.BTC
-    if symbol == "MARK:ETHUSD":
+    if symbol in ("MARK:ETHUSD", "ETHUSD"):
         return Underlying.ETH
     return None
 
@@ -612,7 +617,8 @@ async def run_trading_engine() -> None:
     textfile = TextfileCollector(metrics, settings.prom_textfile_path)
 
     subscriptions = [
-        Subscription("v2/ticker", ("MARK:BTCUSD", "MARK:ETHUSD")),
+        # Delta India ``v2/ticker`` expects perpetual symbols (see API websocket guide).
+        Subscription("v2/ticker", ("BTCUSD", "ETHUSD")),
     ]
     ws = DeltaWebSocketClient(settings, subscriptions)
 
@@ -690,7 +696,12 @@ async def run_trading_engine() -> None:
             if u is not None:
                 mp = msg.get("mark_price")
                 if mp is None:
-                    mp = msg.get("spot_price") or msg.get("underlying_mark")
+                    mp = (
+                        msg.get("spot_price")
+                        or msg.get("underlying_mark")
+                        or msg.get("close")
+                        or msg.get("last_price")
+                    )
                 if mp is not None:
                     try:
                         px = float(mp)
