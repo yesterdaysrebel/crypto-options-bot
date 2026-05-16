@@ -8,7 +8,7 @@
 
 services:
   bot:
-    image: ${IMAGE:-ghcr.io/yesterdays-rebel/crypto-options-bot:latest}
+    image: ${IMAGE:-ghcr.io/yesterdaysrebel/crypto-options-bot:latest}
     container_name: crypto-options-bot
     restart: unless-stopped
     env_file:

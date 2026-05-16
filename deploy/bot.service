@@ -1,6 +1,6 @@
 [Unit]
 Description=Crypto Options Bot (Delta India)
-Documentation=https://github.com/yesterdays-rebel/crypto-options-bot
+Documentation=https://github.com/yesterdaysrebel/crypto-options-bot
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
