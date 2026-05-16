@@ -51,7 +51,7 @@ def test_realised_pnl_multi_lot_matches_leg_prices() -> None:
 
 
 def test_realised_pnl_old_buggy_total_premium_inflates_loss() -> None:
-    """Storing total premium in premium_paid_inr then × lots overstates loss."""
+    """Storing total premium in premium_paid_inr then x lots overstates loss."""
     entry_total_stored_wrong = 278.156
     lots = 5
     exit_per_lot = 55.4019

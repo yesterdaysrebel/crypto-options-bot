@@ -91,7 +91,7 @@ class EntryResult:
 
     @property
     def total_premium_inr(self) -> float:
-        """Net premium for the whole request (per-lot fill price × lots, summed over legs)."""
+        """Net premium for the whole request (per-lot fill price x lots, summed over legs)."""
         total = 0.0
         for f in self.fills:
             if f.avg_fill_price is None:
