@@ -202,8 +202,8 @@ class Trade(Base):
     status: Mapped[str] = mapped_column(String(16), default=TradeStatus.OPEN.value, index=True)
     mode: Mapped[str] = mapped_column(String(8), default="dry")
     lots: Mapped[int] = mapped_column(Integer, default=1)
-    premium_paid_inr: Mapped[float | None] = mapped_column(Float, nullable=True)
-    credit_received_inr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    premium_paid_inr: Mapped[float | None] = mapped_column(Float, nullable=True)  # per lot
+    credit_received_inr: Mapped[float | None] = mapped_column(Float, nullable=True)  # per lot
     realised_pnl_inr: Mapped[float | None] = mapped_column(Float, nullable=True)
     delta_pnl_inr: Mapped[float | None] = mapped_column(Float, nullable=True)
     theta_pnl_inr: Mapped[float | None] = mapped_column(Float, nullable=True)

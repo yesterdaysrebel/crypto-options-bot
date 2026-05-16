@@ -32,6 +32,7 @@ from bot.exchange.rest import DeltaRestClient, DeltaRestError
 from bot.exchange.wallet import fetch_wallet_snapshot
 from bot.exchange.ws import DeltaWebSocketClient, Subscription
 from bot.execution.dry import DryExecutor
+from bot.execution.premium import per_lot_premium_from_net, realised_pnl_inr
 from bot.execution.router import EntryRequest, ExitRequest, LegSide
 from bot.observability.logging_setup import configure_logging
 from bot.observability.metrics import MetricsRegistry, TextfileCollector
@@ -344,8 +345,7 @@ async def _persist_entry_and_execute(
         return
 
     net = result.total_premium_inr
-    prem = net if net > 0 else None
-    cred = -net if net < 0 else None
+    prem, cred = per_lot_premium_from_net(net, sizing.sized_lots)
     slip_vals = [f.slippage_bps for f in result.fills if f.slippage_bps is not None]
     slip = float(sum(slip_vals) / len(slip_vals)) if slip_vals else None
 
@@ -500,20 +500,12 @@ async def _persist_exit(
         logger.error("dry exit failed trade_id={} err={}", trade.id, res.error)
         return
 
-    entry_cash = 0.0
-    if trade.premium_paid_inr:
-        entry_cash -= float(trade.premium_paid_inr) * trade.lots
-    if trade.credit_received_inr:
-        entry_cash += float(trade.credit_received_inr) * trade.lots
-
-    exit_cash = 0.0
-    for f in res.fills:
-        if f.avg_fill_price is None:
-            continue
-        sign = 1.0 if f.side == LegSide.SELL else -1.0
-        exit_cash += sign * f.avg_fill_price * f.qty_filled
-
-    realised = exit_cash + entry_cash
+    realised = realised_pnl_inr(
+        premium_paid_per_lot=trade.premium_paid_inr,
+        credit_received_per_lot=trade.credit_received_inr,
+        lots=trade.lots,
+        exit_fills=res.fills,
+    )
     nav.nav_now = float(nav.nav_now) + realised
     outcome = {
         "exit_trigger": trigger.value,
