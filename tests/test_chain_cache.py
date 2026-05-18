@@ -115,6 +115,8 @@ def _fake_btc_chain(today: dt.date) -> tuple[list[dict], list[dict]]:
                     "symbol": sym,
                     "mark_price": str(mid),
                     "spot_price": str(spot),
+                    "oi_contracts": "120",
+                    "volume": "45",
                     "greeks": {
                         "delta": delta_val,
                         "gamma": 0.0001,
@@ -167,6 +169,8 @@ async def test_refresh_quotes_populates_greeks() -> None:
     quote = cache.get_quote(products[0]["symbol"])
     assert quote is not None
     assert quote.delta is not None
+    assert quote.open_interest == 120.0
+    assert quote.volume_24h == 45.0
     assert quote.spread_pct is not None
     assert 0.03 < quote.spread_pct < 0.05
 

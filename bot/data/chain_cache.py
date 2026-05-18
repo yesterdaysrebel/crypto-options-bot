@@ -69,6 +69,8 @@ class QuoteSnapshot:
     vega: float | None = None
     rho: float | None = None
     underlying_mark: float | None = None
+    open_interest: float | None = None
+    volume_24h: float | None = None
     updated_at: float = field(default_factory=time.monotonic)
 
     @property
@@ -327,6 +329,8 @@ def _ticker_to_snapshot(t: dict[str, Any]) -> QuoteSnapshot | None:
         vega=_as_float(greeks.get("vega")),
         rho=_as_float(greeks.get("rho")),
         underlying_mark=_as_float(t.get("spot_price") or t.get("underlying_mark")),
+        open_interest=_as_float(t.get("oi_contracts") or t.get("open_interest") or t.get("oi")),
+        volume_24h=_as_float(t.get("volume") or t.get("volume_24h")),
     )
 
 

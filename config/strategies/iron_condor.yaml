@@ -22,6 +22,10 @@ wings:
 credit:
   min_credit_pct_of_width: 0.25
 
+desk:
+  min_open_interest: 0
+  greeks_required: true
+
 exits:
   profit_take_pct_of_credit: 0.50
   stop_loss_x_credit: 2.0

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import replace
 
 from bot.config.models import (
     DirectionalConfig,
+    ExpiryBucket,
     IronCondorConfig,
     Underlying,
     VolStrangleConfig,
@@ -16,6 +18,7 @@ from bot.data.chain_cache import (
     InstrumentRecord,
     QuoteSnapshot,
 )
+from bot.desk.iv_history import IvPercentileResult
 from bot.strategies.base import MarketState
 
 
@@ -39,6 +42,7 @@ def make_chain(
     atm_mid: float = 300.0,
     decay_per_pct: float = 25.0,
     base_spread_pct: float = 0.04,
+    open_interest: float | None = None,
 ) -> ChainCache:
     """Synthetic option chain.
 
@@ -82,6 +86,7 @@ def make_chain(
                     vega=5.0,
                     rho=0.5,
                     underlying_mark=spot,
+                    open_interest=open_interest,
                 )
             )
             pid += 1
@@ -212,18 +217,27 @@ def make_noisy_then_quiet_candles(
     return candles
 
 
+def set_quote_open_interest(chain: ChainCache, symbol: str, open_interest: float | None) -> None:
+    quote = chain.get_quote(symbol)
+    if quote is None:
+        raise ValueError(f"unknown symbol: {symbol}")
+    chain.upsert_quote(replace(quote, open_interest=open_interest))
+
+
 def make_market_state(
     now: dt.datetime,
     *,
     chain: ChainCache,
     candles_by_tf: dict[Underlying, dict[str, list[Candle]]],
     spots: dict[Underlying, float],
+    iv_percentiles: dict[tuple[Underlying, ExpiryBucket], IvPercentileResult] | None = None,
 ) -> MarketState:
     return MarketState(
         now=now,
         chain=chain,
         candles_by_tf=candles_by_tf,
         underlying_marks=spots,
+        iv_percentiles=iv_percentiles or {},
     )
 
 

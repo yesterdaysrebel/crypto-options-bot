@@ -11,13 +11,20 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import TYPE_CHECKING, Any
 
-from bot.config.models import GlobalConfig, StrategyConfig, StrategyId
+from bot.config.models import GlobalConfig, StrategyConfig, StrategyId, Underlying
+from bot.data.chain_cache import ChainCache, QuoteSnapshot
+from bot.desk.portfolio_greeks import PortfolioGreeks
 from bot.risk.caps import CapStatus, DrawdownCaps, LossCapResult, NavTracker
 from bot.risk.window import TradingWindow
-from bot.strategies.base import Intent
+
+if TYPE_CHECKING:
+    from bot.desk.policy import DeskPolicy
+    from bot.strategies.base import Intent
 
 
 class RiskDecision(StrEnum):
@@ -33,6 +40,10 @@ class RiskDecision(StrEnum):
     CONDOR_MAX_LOSS_ABOVE_BUDGET = "condor_max_loss_above_budget"
     STRANGLE_PREMIUM_ABOVE_RISK_BUDGET = "strangle_premium_above_risk_budget"
     STRATEGY_DISABLED = "strategy_disabled"
+    LOW_OPEN_INTEREST = "low_open_interest"
+    MISSING_GREEKS = "missing_greeks"
+    PORTFOLIO_DELTA_LIMIT = "portfolio_delta_limit"
+    PORTFOLIO_VEGA_LIMIT = "portfolio_vega_limit"
 
 
 @dataclass(frozen=True)
@@ -77,6 +88,11 @@ class RiskManager:
             weekly_loss_pct=global_config.risk_caps.weekly_loss_pct,
             lifetime_dd_pct=global_config.risk_caps.lifetime_dd_pct,
         )
+        self._desk: DeskPolicy | None = None
+        if global_config.desk.enabled:
+            from bot.desk.policy import DeskPolicy as DeskPolicyCls
+
+            self._desk = DeskPolicyCls(global_config.desk)
 
     @property
     def nav_tracker(self) -> NavTracker:
@@ -105,6 +121,11 @@ class RiskManager:
         *,
         now_utc: dt.datetime,
         accounting: TradeAccountingSnapshot,
+        portfolio_greeks: PortfolioGreeks | None = None,
+        quote_for: Mapping[str, QuoteSnapshot] | None = None,
+        chain: ChainCache | None = None,
+        underlying_marks: Mapping[Underlying, float] | None = None,
+        usd_inr_rate: float = 1.0,
     ) -> SizingResult:
         if not self._window.is_open(now_utc):
             return SizingResult(decision=RiskDecision.OUTSIDE_TRADING_WINDOW, intent=intent)
@@ -131,6 +152,31 @@ class RiskManager:
         strategy_open = accounting.open_count_by_strategy.get(intent.strategy_id, 0)
         if strategy_open >= self._cfg.concurrency.max_per_strategy:
             return SizingResult(decision=RiskDecision.STRATEGY_MAX_CONCURRENT, intent=intent)
+
+        if self._desk is not None:
+            desk_notes: dict[str, Any] = {}
+            if portfolio_greeks is not None and underlying_marks is not None:
+                reason, pnotes = self._desk.check_portfolio(
+                    portfolio_greeks,
+                    underlying_marks,
+                    usd_inr_rate=usd_inr_rate,
+                )
+                desk_notes.update(pnotes)
+                if reason is not None:
+                    return SizingResult(
+                        decision=RiskDecision(reason),
+                        intent=intent,
+                        notes=desk_notes,
+                    )
+            if quote_for is not None:
+                reason, inotes = self._desk.check_intent(intent, quote_for, chain)
+                desk_notes.update(inotes)
+                if reason is not None:
+                    return SizingResult(
+                        decision=RiskDecision(reason),
+                        intent=intent,
+                        notes=desk_notes,
+                    )
 
         return self._size_intent(intent, strategy_cfg)
 

@@ -22,3 +22,13 @@ execution:
   slip_bps_strangle: 50
   slip_bps_condor: 100
   trail_update_throttle_seconds: 5
+
+# Desk gates (IV/OI/greeks/portfolio). Keep enabled: false until dry-run validation.
+desk:
+  enabled: false
+  strict: false
+  min_open_interest: 50
+  greeks_required: true
+  max_abs_net_delta_inr: 15000
+  max_abs_net_vega_inr: 8000
+  iv_history_min_snapshots: 20

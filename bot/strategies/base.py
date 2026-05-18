@@ -24,6 +24,7 @@ from bot.config.models import (
 )
 from bot.data.candles import Candle
 from bot.data.chain_cache import ChainCache, OptionType, QuoteSnapshot, StrikeSelection
+from bot.desk.iv_history import IvPercentileResult
 
 
 class ActionType(StrEnum):
@@ -129,6 +130,7 @@ class MarketState:
     underlying_marks: dict[Underlying, float]
     quote_for: dict[str, QuoteSnapshot] = field(default_factory=dict)
     usd_inr_rate: float = 1.0
+    iv_percentiles: dict[tuple[Underlying, ExpiryBucket], IvPercentileResult] = field(default_factory=dict)
 
     def premium_inr(self, mid: float | None) -> float | None:
         """Convert exchange quote mid (USD on Delta India) to INR for risk sizing."""
@@ -141,6 +143,9 @@ class MarketState:
 
     def spot(self, underlying: Underlying) -> float | None:
         return self.underlying_marks.get(underlying)
+
+    def iv_percentile(self, underlying: Underlying, bucket: ExpiryBucket) -> IvPercentileResult | None:
+        return self.iv_percentiles.get((underlying, bucket))
 
 
 @dataclass
