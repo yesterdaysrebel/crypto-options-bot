@@ -101,6 +101,15 @@ async def test_iv_percentile_returns_rank_with_enough_samples(db) -> None:
     assert result.n_samples == 5
 
 
+def test_should_sample_allows_first_sample_when_monotonic_is_low() -> None:
+    """Regression: default last=0 made mono-last < interval on fresh CI runners."""
+    from unittest.mock import AsyncMock
+
+    store = IvHistoryStore(AsyncMock(), sample_interval_s=3600.0)
+    key = (Underlying.BTC.value, ExpiryBucket.D1.value)
+    assert store._should_sample(key) is True
+
+
 @pytest.mark.asyncio
 async def test_should_sample_respects_interval() -> None:
     from unittest.mock import AsyncMock

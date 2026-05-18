@@ -114,8 +114,8 @@ class IvHistoryStore:
 
     def _should_sample(self, key: tuple[str, str]) -> bool:
         mono = time.monotonic()
-        last = self._last_sample_mono.get(key, 0.0)
-        if mono - last < self._sample_interval_s:
+        last = self._last_sample_mono.get(key)
+        if last is not None and mono - last < self._sample_interval_s:
             return False
         self._last_sample_mono[key] = mono
         return True
