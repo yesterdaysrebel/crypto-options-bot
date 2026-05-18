@@ -7,6 +7,7 @@ from dataclasses import replace
 
 from bot.config.models import (
     DirectionalConfig,
+    ExpiryBucket,
     IronCondorConfig,
     Underlying,
     VolStrangleConfig,
@@ -17,7 +18,6 @@ from bot.data.chain_cache import (
     InstrumentRecord,
     QuoteSnapshot,
 )
-from bot.config.models import ExpiryBucket
 from bot.desk.iv_history import IvPercentileResult
 from bot.strategies.base import MarketState
 

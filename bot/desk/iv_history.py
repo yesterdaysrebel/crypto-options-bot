@@ -128,7 +128,7 @@ def atm_iv_for_bucket(
     spot: float,
     now: dt.datetime,
 ) -> float | None:
-    """Current ATM implied vol for an underlying×expiry bucket (mean of call/put ATM IV)."""
+    """Current ATM implied vol for an underlying x expiry bucket (mean of call/put ATM IV)."""
     sampled = _atm_iv_sample(chain, underlying, bucket, spot, now)
     return sampled[0] if sampled is not None else None
 

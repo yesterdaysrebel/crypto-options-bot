@@ -151,7 +151,7 @@ def _render_greeks_block(greeks: object) -> str:
     if not greeks or not isinstance(greeks, dict):
         return "_none_"
     lines = [
-        "| Symbol | IV | Δ | Γ | Θ | ν | OI |",
+        "| Symbol | IV | Δ | Γ | Θ | Vega | OI |",
         "|---|---:|---:|---:|---:|---:|---:|",
     ]
     for symbol in sorted(greeks):
