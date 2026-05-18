@@ -108,6 +108,22 @@ class MetricsRegistry:
             ["endpoint", "status"],
             registry=self.registry,
         )
+        self.portfolio_delta_inr = Gauge(
+            "bot_portfolio_delta_inr",
+            "Book net delta notional in INR (abs spot-weighted)",
+            registry=self.registry,
+        )
+        self.portfolio_vega_inr = Gauge(
+            "bot_portfolio_vega_inr",
+            "Book net vega notional in INR",
+            registry=self.registry,
+        )
+        self.iv_percentile = Gauge(
+            "bot_iv_percentile",
+            "ATM IV percentile for underlying x expiry bucket",
+            ["underlying", "expiry_bucket"],
+            registry=self.registry,
+        )
 
     def render(self) -> bytes:
         return generate_latest(self.registry)

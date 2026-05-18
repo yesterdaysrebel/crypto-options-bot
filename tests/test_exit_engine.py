@@ -79,6 +79,30 @@ def _make_position_directional(entry: float = 100.0) -> PositionState:
     )
 
 
+def test_directional_delta_breach_emits_close() -> None:
+    cfg = directional_cfg(desk={"max_abs_delta_move": 0.10, "max_abs_gamma_shock": None})
+    strat = DirectionalStrategy(cfg)
+    engine = ExitEngine(StrategyRegistry([strat]))
+    state = _make_market_directional(with_quote_mid=150.0)
+    pos = _make_position_directional(entry=100.0)
+    pos.notes = {
+        "entry_greeks": {
+            "C-BTC-100000-130524": {"delta": 0.50, "gamma": 0.0001},
+        },
+    }
+    state.quote_for["C-BTC-100000-130524"] = QuoteSnapshot(
+        symbol="C-BTC-100000-130524",
+        bid=149.0,
+        ask=151.0,
+        mark_price=150.0,
+        delta=0.70,
+        gamma=0.0001,
+    )
+    runtime = PositionRuntime(position=pos)
+    directives = engine.step(runtime, state)
+    assert any(d.kind == ExitKind.CLOSE and d.trigger == ExitTrigger.DELTA_BREACH for d in directives)
+
+
 def test_directional_target_emits_close() -> None:
     strat = DirectionalStrategy(directional_cfg())
     engine = ExitEngine(StrategyRegistry([strat]))

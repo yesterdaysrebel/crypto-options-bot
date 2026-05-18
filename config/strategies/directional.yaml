@@ -30,6 +30,8 @@ desk:
   max_iv_percentile_long: null
   min_iv_percentile_long: null
   prefer_delta_strike: null
+  # max_abs_delta_move: 0.15
+  # max_abs_gamma_shock: 0.00005
 
 exits:
   target_r: 1.5

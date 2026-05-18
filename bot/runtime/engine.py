@@ -573,6 +573,28 @@ async def _persist_exit(
             notes["exit_greeks"] = exit_greeks
         if exit_iv is not None:
             t.exit_iv = exit_iv
+        entry_spot = _note_float(notes, "entry_underlying_price")
+        exit_spot: float | None = None
+        if indicator_at_exit and isinstance(indicator_at_exit, dict):
+            spot_raw = indicator_at_exit.get("spot")
+            if spot_raw is not None:
+                try:
+                    exit_spot = float(spot_raw)
+                except (TypeError, ValueError):
+                    exit_spot = None
+        from bot.desk.pnl_attribution import estimate_delta_pnl_inr
+
+        usd_inr_rate = _note_float(notes, "usd_inr_rate") or 85.0
+        delta_pnl = estimate_delta_pnl_inr(
+            t,
+            legs,
+            entry_underlying_price=entry_spot,
+            exit_underlying_price=exit_spot,
+            usd_inr_rate=usd_inr_rate,
+            chain=chain,
+        )
+        if delta_pnl is not None:
+            t.delta_pnl_inr = delta_pnl
         peak_note = _note_float(notes, "peak_pnl_inr")
         if peak_note is not None:
             t.peak_pnl_inr = peak_note
@@ -952,6 +974,27 @@ async def run_trading_engine() -> None:
             portfolio_book: PortfolioGreeks | None = None
             if app_config.global_config.desk.enabled:
                 portfolio_book = PortfolioGreeks.from_open_trades(open_rows, quote_for, chain=chain)
+                if portfolio_book is not None:
+                    delta_inr = 0.0
+                    vega_inr = 0.0
+                    for key, ug in portfolio_book.by_underlying.items():
+                        try:
+                            underlying = Underlying(key)
+                        except ValueError:
+                            continue
+                        spot = underlying_marks.get(underlying)
+                        if spot is None or spot <= 0:
+                            continue
+                        delta_inr += abs(ug.delta) * float(spot) * usd_inr
+                        vega_inr += abs(ug.vega) * usd_inr
+                    metrics.portfolio_delta_inr.set(delta_inr)
+                    metrics.portfolio_vega_inr.set(vega_inr)
+                for (underlying, bucket), iv_result in iv_percentiles.items():
+                    if iv_result.percentile is not None:
+                        metrics.iv_percentile.labels(
+                            underlying=underlying.value,
+                            expiry_bucket=bucket.value,
+                        ).set(iv_result.percentile)
             for intent in disp.all_intents:
                 sizing = risk.gate(
                     intent,
