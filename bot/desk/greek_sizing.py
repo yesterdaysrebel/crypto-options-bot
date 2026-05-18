@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from bot.data.chain_cache import ChainCache, QuoteSnapshot
 from bot.desk.greek_snapshot import resolve_quote
-from bot.strategies.base import Intent
+
+if TYPE_CHECKING:
+    from bot.strategies.base import Intent
 
 
 def cap_lots_by_greeks(
