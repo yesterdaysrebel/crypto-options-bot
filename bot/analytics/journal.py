@@ -147,6 +147,25 @@ def _render_wallet_block(obj: object) -> str:
     return "\n".join(lines) if len(lines) > 1 else "_empty balances_"
 
 
+def _render_greeks_block(greeks: object) -> str:
+    if not greeks or not isinstance(greeks, dict):
+        return "_none_"
+    lines = [
+        "| Symbol | IV | Δ | Γ | Θ | ν | OI |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for symbol in sorted(greeks):
+        row = greeks.get(symbol)
+        if not isinstance(row, dict):
+            continue
+        lines.append(
+            f"| {symbol} | {_fmt(row.get('iv'), ndigits=3)} | {_fmt(row.get('delta'), ndigits=3)} | "
+            f"{_fmt(row.get('gamma'), ndigits=4)} | {_fmt(row.get('theta'), ndigits=3)} | "
+            f"{_fmt(row.get('vega'), ndigits=3)} | {_fmt(row.get('open_interest'), ndigits=0)} |"
+        )
+    return "\n".join(lines) if len(lines) > 2 else "_none_"
+
+
 def _render_dict_block(d: dict | None) -> str:
     if not d:
         return "_none_"
@@ -228,6 +247,16 @@ def _render(trade: Trade, signal: Signal | None, orders: list[Order]) -> str:
         "",
         _render_dict_block(notes.get("indicators_at_exit")),
         "",
+        "## Greeks",
+        "",
+        "### At entry",
+        "",
+        _render_greeks_block(notes.get("entry_greeks")),
+        "",
+        "### At exit",
+        "",
+        _render_greeks_block(notes.get("exit_greeks")),
+        "",
         "## Trail events",
         "",
         _render_trail_events(notes.get("trail_events")),
@@ -300,6 +329,8 @@ _STRUCTURED_NOTE_KEYS = frozenset(
         "entry_net_premium_inr",
         "trade_lifecycle",
         "rationale",
+        "entry_greeks",
+        "exit_greeks",
     }
 )
 

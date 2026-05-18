@@ -25,6 +25,12 @@ strike:
   primary: ATM
   fallback: OTM_PLUS_ONE
 
+# Desk-style entry filters (off until IV history has warmed up in dry-run).
+desk:
+  max_iv_percentile_long: null
+  min_iv_percentile_long: null
+  prefer_delta_strike: null
+
 exits:
   target_r: 1.5
   premium_drawdown_pct: 0.50

@@ -8,6 +8,7 @@ import datetime as dt
 import signal
 import time
 from collections import defaultdict
+from collections.abc import Mapping
 from typing import Any
 
 from loguru import logger
@@ -28,6 +29,9 @@ from bot.config.models import (
 )
 from bot.data.candles import CandleAggregator
 from bot.data.chain_cache import ChainCache, QuoteSnapshot, parse_symbol
+from bot.desk.greek_snapshot import greeks_by_symbol, trade_iv_from_symbols
+from bot.desk.iv_history import IvHistoryStore
+from bot.desk.portfolio_greeks import PortfolioGreeks
 from bot.exchange.rest import DeltaRestClient, DeltaRestError
 from bot.exchange.wallet import fetch_wallet_snapshot
 from bot.exchange.ws import DeltaWebSocketClient, Subscription
@@ -41,6 +45,7 @@ from bot.observability.metrics import MetricsRegistry, TextfileCollector
 from bot.observability.server import MetricsServer
 from bot.risk.caps import NavTracker
 from bot.risk.manager import RiskDecision, RiskManager, SizingResult, TradeAccountingSnapshot
+from bot.runtime.iv_prefetch import prefetch_iv_for_strategies
 from bot.runtime.nav_state import (
     load_nav_tracker,
     maybe_roll_ist_trading_day,
@@ -135,6 +140,10 @@ def _risk_decision_to_reason(rd: RiskDecision) -> DecisionReason:
         RiskDecision.CONDOR_MAX_LOSS_ABOVE_BUDGET: DecisionReason.CONDOR_MAX_LOSS_ABOVE_BUDGET,
         RiskDecision.STRANGLE_PREMIUM_ABOVE_RISK_BUDGET: DecisionReason.STRANGLE_PREMIUM_ABOVE_RISK_BUDGET,
         RiskDecision.STRATEGY_DISABLED: DecisionReason.STRATEGY_DISABLED,
+        RiskDecision.LOW_OPEN_INTEREST: DecisionReason.LOW_OPEN_INTEREST,
+        RiskDecision.MISSING_GREEKS: DecisionReason.MISSING_GREEKS,
+        RiskDecision.PORTFOLIO_DELTA_LIMIT: DecisionReason.PORTFOLIO_DELTA_LIMIT,
+        RiskDecision.PORTFOLIO_VEGA_LIMIT: DecisionReason.PORTFOLIO_VEGA_LIMIT,
     }
     return mapping.get(rd, DecisionReason.OTHER)
 
@@ -187,6 +196,8 @@ def _quote_from_ws_ticker(msg: dict[str, Any]) -> QuoteSnapshot | None:
         vega=_f(g.get("vega")),
         rho=_f(g.get("rho")),
         underlying_mark=_f(msg.get("spot_price") or msg.get("underlying_mark")),
+        open_interest=_f(msg.get("oi_contracts") or msg.get("open_interest") or msg.get("oi")),
+        volume_24h=_f(msg.get("volume") or msg.get("volume_24h")),
     )
 
 
@@ -282,6 +293,8 @@ async def _persist_entry_and_execute(
     mode: str,
     journal: TradeJournal,
     wallet_at_entry: dict[str, Any] | None,
+    quote_for: Mapping[str, QuoteSnapshot] | None = None,
+    chain: ChainCache | None = None,
 ) -> None:
     now = market.now
     spot = market.spot(intent.underlying)
@@ -364,6 +377,13 @@ async def _persist_entry_and_execute(
     slip_vals = [f.slippage_bps for f in result.fills if f.slippage_bps is not None]
     slip = float(sum(slip_vals) / len(slip_vals)) if slip_vals else None
 
+    symbols = [leg.symbol for leg in intent.legs]
+    entry_iv: float | None = None
+    entry_greeks: dict[str, dict[str, float | None]] = {}
+    if quote_for is not None:
+        entry_iv = trade_iv_from_symbols(symbols, quote_for, chain=chain)
+        entry_greeks = greeks_by_symbol(symbols, quote_for, chain=chain)
+
     async with db.session() as session:
         t = await session.get(Trade, trade_id)
         if t is None:
@@ -371,10 +391,14 @@ async def _persist_entry_and_execute(
         t.premium_paid_inr = prem
         t.credit_received_inr = cred
         t.slippage_bps = slip
+        if entry_iv is not None:
+            t.entry_iv = entry_iv
         notes = dict(t.notes or {})
         notes["entry_fill_prices"] = {str(f.leg_idx): f.avg_fill_price for f in result.fills}
         notes["entry_net_premium_inr"] = net
         notes["trade_lifecycle"] = "opened_filled"
+        if entry_greeks:
+            notes["entry_greeks"] = entry_greeks
         t.notes = notes
         for fill in result.fills:
             session.add(
@@ -490,6 +514,8 @@ async def _persist_exit(
     nav: NavTracker,
     wallet_at_exit: dict[str, Any] | None,
     indicator_at_exit: dict[str, Any] | None,
+    quote_for: Mapping[str, QuoteSnapshot] | None = None,
+    chain: ChainCache | None = None,
 ) -> None:
     now = dt.datetime.now(dt.UTC).replace(tzinfo=None)
     leg_intents = [
@@ -528,6 +554,13 @@ async def _persist_exit(
         "result": "win" if realised > 1e-6 else ("loss" if realised < -1e-6 else "flat"),
     }
 
+    symbols = [leg.symbol for leg in legs]
+    exit_iv: float | None = None
+    exit_greeks: dict[str, dict[str, float | None]] = {}
+    if quote_for is not None:
+        exit_iv = trade_iv_from_symbols(symbols, quote_for, chain=chain)
+        exit_greeks = greeks_by_symbol(symbols, quote_for, chain=chain)
+
     async with db.session() as session:
         t = await session.get(Trade, trade.id)
         if t is None:
@@ -536,6 +569,10 @@ async def _persist_exit(
         notes["wallet_at_exit"] = wallet_at_exit
         notes["indicators_at_exit"] = indicator_at_exit
         notes["trade_outcome"] = outcome
+        if exit_greeks:
+            notes["exit_greeks"] = exit_greeks
+        if exit_iv is not None:
+            t.exit_iv = exit_iv
         peak_note = _note_float(notes, "peak_pnl_inr")
         if peak_note is not None:
             t.peak_pnl_inr = peak_note
@@ -621,6 +658,7 @@ async def run_trading_engine() -> None:
 
     rest = DeltaRestClient(settings)
     chain = ChainCache(rest)
+    iv_history = IvHistoryStore(db)
     exec_cfg = app_config.global_config.execution
     if settings.is_live:
         executor: ExecutionRouter = LiveExecutor(
@@ -703,6 +741,8 @@ async def run_trading_engine() -> None:
             try:
                 await chain.refresh_instruments()
                 await chain.refresh_quotes()
+                now_chain = dt.datetime.now(dt.UTC).replace(tzinfo=None)
+                await iv_history.record_from_chain(chain, underlying_marks, now_chain)
             except DeltaRestError as exc:
                 logger.warning("chain refresh: {}", exc)
                 metrics.rest_errors_total.labels(exc.endpoint or "unknown", str(exc.status_code or 0)).inc()
@@ -817,6 +857,13 @@ async def run_trading_engine() -> None:
                     q = chain.get_quote(leg.symbol)
                     if q is not None:
                         quote_for[leg.symbol] = q
+            iv_percentiles = await prefetch_iv_for_strategies(
+                iv_history,
+                chain,
+                underlying_marks,
+                strategy_cfgs,
+                now=now,
+            )
             market = MarketState(
                 now=now,
                 chain=chain,
@@ -824,6 +871,7 @@ async def run_trading_engine() -> None:
                 underlying_marks=dict(underlying_marks),
                 quote_for=quote_for,
                 usd_inr_rate=usd_inr,
+                iv_percentiles=iv_percentiles,
             )
             open_ids = {t.id for t, _ in open_rows}
             for tid in list(position_runtimes.keys()):
@@ -870,6 +918,8 @@ async def run_trading_engine() -> None:
                             nav=nav_tracker,
                             wallet_at_exit=wallet_exit,
                             indicator_at_exit=ind_exit,
+                            quote_for=quote_for,
+                            chain=chain,
                         )
                         _apply_directional_exit_cooldown(registry, trade, now=now)
                         position_runtimes.pop(trade.id, None)
@@ -899,8 +949,20 @@ async def run_trading_engine() -> None:
             records: list[dict[str, Any]] = list(disp.all_decisions)
 
             accounting = await _accounting_snapshot(db)
+            portfolio_book: PortfolioGreeks | None = None
+            if app_config.global_config.desk.enabled:
+                portfolio_book = PortfolioGreeks.from_open_trades(open_rows, quote_for, chain=chain)
             for intent in disp.all_intents:
-                sizing = risk.gate(intent, now_utc=now, accounting=accounting)
+                sizing = risk.gate(
+                    intent,
+                    now_utc=now,
+                    accounting=accounting,
+                    portfolio_greeks=portfolio_book,
+                    quote_for=quote_for,
+                    chain=chain,
+                    underlying_marks=underlying_marks,
+                    usd_inr_rate=usd_inr,
+                )
                 records.append(_risk_record(intent, sizing))
                 metrics.intents_total.labels(intent.strategy_id.value).inc()
                 if sizing.approved:
@@ -919,6 +981,8 @@ async def run_trading_engine() -> None:
                         mode=settings.mode.value,
                         journal=journal,
                         wallet_at_entry=entry_wallet,
+                        quote_for=quote_for,
+                        chain=chain,
                     )
                     metrics.trades_opened_total.labels(intent.strategy_id.value).inc()
                     accounting = await _accounting_snapshot(db)

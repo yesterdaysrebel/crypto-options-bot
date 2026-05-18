@@ -96,6 +96,20 @@ class ExecutionConfig(BaseModel):
     trail_update_throttle_seconds: Annotated[float, Field(gt=0)] = 5.0
 
 
+class DeskConfig(BaseModel):
+    """Desk-style gates (IV/OI/greeks/portfolio limits). Off by default until tuned in dry-run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    strict: bool = False
+    min_open_interest: Annotated[float, Field(ge=0)] = 0.0
+    greeks_required: bool = True
+    max_abs_net_delta_inr: Annotated[float, Field(gt=0)] | None = None
+    max_abs_net_vega_inr: Annotated[float, Field(gt=0)] | None = None
+    iv_history_min_snapshots: Annotated[int, Field(ge=1)] = 20
+
+
 class GlobalConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -105,6 +119,7 @@ class GlobalConfig(BaseModel):
     trading_window: TradingWindowConfig = TradingWindowConfig()
     concurrency: ConcurrencyConfig = ConcurrencyConfig()
     execution: ExecutionConfig = ExecutionConfig()
+    desk: DeskConfig = DeskConfig()
 
 
 class BaseStrategyConfig(BaseModel):
@@ -144,6 +159,16 @@ class DirectionalStrike(BaseModel):
     fallback: StrikeMode = StrikeMode.OTM_PLUS_ONE
 
 
+class DirectionalDeskConfig(BaseModel):
+    """Per-strategy desk overrides (IV regime, optional delta-target entry)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    max_iv_percentile_long: Annotated[float, Field(gt=0, le=1)] | None = None
+    min_iv_percentile_long: Annotated[float, Field(gt=0, le=1)] | None = None
+    prefer_delta_strike: Annotated[float, Field(gt=0, lt=1)] | None = None
+
+
 class DirectionalExits(BaseModel):
     model_config = ConfigDict(extra="forbid")
     target_r: Annotated[float, Field(gt=0)] = 2.0
@@ -159,6 +184,7 @@ class DirectionalConfig(BaseStrategyConfig):
     entry: DirectionalEntry = DirectionalEntry()
     expiry: DirectionalExpiry = DirectionalExpiry()
     strike: DirectionalStrike = DirectionalStrike()
+    desk: DirectionalDeskConfig = DirectionalDeskConfig()
     exits: DirectionalExits = DirectionalExits()
 
 

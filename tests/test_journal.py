@@ -61,7 +61,30 @@ async def _seed_closed_directional_trade(db: Database) -> int:
             exit_iv=0.58,
             exit_reason="target",
             signal_id=signal.id,
-            notes={"trailing_stop": "broke even at +1R", "exit_path": "target"},
+            notes={
+                "trailing_stop": "broke even at +1R",
+                "exit_path": "target",
+                "entry_greeks": {
+                    "C-BTC-100000-150526": {
+                        "iv": 0.62,
+                        "delta": 0.48,
+                        "gamma": 0.0001,
+                        "theta": -10.0,
+                        "vega": 7.5,
+                        "open_interest": 200.0,
+                    },
+                },
+                "exit_greeks": {
+                    "C-BTC-100000-150526": {
+                        "iv": 0.58,
+                        "delta": 0.52,
+                        "gamma": 0.0001,
+                        "theta": -9.0,
+                        "vega": 7.0,
+                        "open_interest": 210.0,
+                    },
+                },
+            },
         )
         session.add(trade)
         await session.flush()
@@ -117,6 +140,8 @@ async def test_journal_writes_file_with_expected_sections(db: Database, tmp_path
     assert "## Orders" in content
     assert "## Trade outcome" in content
     assert "## Wallet" in content
+    assert "## Greeks" in content
+    assert "C-BTC-100000-150526" in content
     assert "## Notes" in content
     assert "directional-1-0-entry-abc" in content
     assert "ema_fast" in content

@@ -71,6 +71,10 @@ class DecisionReason(StrEnum):
     ANTI_REVENGE_BLOCK = "anti_revenge_block"
     DTE_TOO_SHORT = "dte_too_short"
     STRATEGY_DISABLED = "strategy_disabled"
+    LOW_OPEN_INTEREST = "low_open_interest"
+    MISSING_GREEKS = "missing_greeks"
+    PORTFOLIO_DELTA_LIMIT = "portfolio_delta_limit"
+    PORTFOLIO_VEGA_LIMIT = "portfolio_vega_limit"
     OTHER = "other"
 
 
@@ -301,3 +305,17 @@ class NavHistory(Base):
     peak_nav_inr: Mapped[float] = mapped_column(Float)
     drawdown_from_peak_pct: Mapped[float] = mapped_column(Float, default=0.0)
     circuit_breaker_tripped: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class IvSnapshot(Base):
+    """ATM implied vol sample per underlying + expiry bucket (desk IV percentile history)."""
+
+    __tablename__ = "iv_snapshots"
+    __table_args__ = (Index("ix_iv_snapshots_lookup", "underlying", "expiry_bucket", "ts"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ts: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow, index=True)
+    underlying: Mapped[str] = mapped_column(String(16), index=True)
+    expiry_bucket: Mapped[str] = mapped_column(String(8), index=True)
+    expiry_date: Mapped[dt.date] = mapped_column(Date, index=True)
+    atm_iv: Mapped[float] = mapped_column(Float)

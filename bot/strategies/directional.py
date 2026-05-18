@@ -21,16 +21,21 @@ Manage signals (PR #13 builds the full per-strategy exit engine on top of these)
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import Any
 
 import numpy as np
 
 from bot.config.models import (
     DirectionalConfig,
+    DirectionalDeskConfig,
     ExpiryBucket,
+    StrikeMode,
     StrategyId,
     Underlying,
 )
+from bot.data.chain_cache import ChainCache, QuoteSnapshot, StrikeSelection
+from bot.desk.iv_history import IvPercentileResult
 from bot.data.candles import atr, ema
 from bot.risk.window import india_options_session_close_utc
 from bot.strategies.base import (
@@ -132,25 +137,28 @@ class DirectionalStrategy(Strategy):
         option_type = "call" if long_setup else "put"
         bucket = self._pick_expiry_bucket(market)
 
-        selection = self.select_strike(
-            market.chain,
+        iv_result = market.iv_percentile(underlying, bucket)
+        if iv_result is not None:
+            feature_vector["iv_percentile"] = iv_result.percentile
+            feature_vector["iv_percentile_reason"] = iv_result.reason
+            feature_vector["iv_percentile_n"] = iv_result.n_samples
+        if _iv_entry_blocked(cfg.desk, iv_result):
+            return _decision(
+                self.id,
+                underlying,
+                None,
+                False,
+                "iv_out_of_range",
+                feature_vector,
+            )
+
+        selection = self._pick_entry_strike(
+            market,
             underlying,
             option_type,
             bucket,
-            spot_price=spot,
-            atm_offset=0,
-            now=market.now,
+            spot,
         )
-        if selection is None or selection.quote.mid is None:
-            selection = self.select_strike(
-                market.chain,
-                underlying,
-                option_type,
-                bucket,
-                spot_price=spot,
-                atm_offset=1,
-                now=market.now,
-            )
         if selection is None or selection.quote.mid is None:
             return _decision(self.id, underlying, None, False, "no_acceptable_strike", feature_vector)
 
@@ -165,6 +173,7 @@ class DirectionalStrategy(Strategy):
                 {**feature_vector, "spread_pct": spread},
             )
 
+        leg_features = _quote_greek_features(selection.quote)
         intent = Intent(
             strategy_id=self.id,
             underlying=underlying,
@@ -180,7 +189,12 @@ class DirectionalStrategy(Strategy):
             ],
             requested_lots=cfg.max_lots_cap,
             rationale=f"directional_{option_type}_atr_breakout",
-            feature_vector={**feature_vector, "spread_pct": spread, "mid": selection.quote.mid},
+            feature_vector={
+                **feature_vector,
+                "spread_pct": spread,
+                "mid": selection.quote.mid,
+                **leg_features,
+            },
             target_premium_inr=market.premium_inr(selection.quote.mid),
             spread_pct_max=self._spread_pct_max,
         )
@@ -191,10 +205,85 @@ class DirectionalStrategy(Strategy):
             selection.instrument.symbol,
             True,
             "passed",
-            {**feature_vector, "spread_pct": spread, "mid": selection.quote.mid},
+            {**feature_vector, "spread_pct": spread, "mid": selection.quote.mid, **leg_features},
         )
         payload["_intent"] = intent
         return payload
+
+    def _pick_entry_strike(
+        self,
+        market: MarketState,
+        underlying: Underlying,
+        option_type: str,
+        bucket: ExpiryBucket,
+        spot: float,
+    ) -> StrikeSelection | None:
+        desk = self.config.desk
+        if desk.prefer_delta_strike is not None:
+            selection = self.select_strike(
+                market.chain,
+                underlying,
+                option_type,
+                bucket,
+                target_delta=desk.prefer_delta_strike,
+                now=market.now,
+            )
+            if selection is not None and selection.quote.mid is not None:
+                return selection
+
+        selection = self._strike_for_mode(
+            market.chain,
+            underlying,
+            option_type,
+            bucket,
+            spot,
+            self.config.strike.primary,
+            now=market.now,
+        )
+        if selection is None or selection.quote.mid is None:
+            selection = self._strike_for_mode(
+                market.chain,
+                underlying,
+                option_type,
+                bucket,
+                spot,
+                self.config.strike.fallback,
+                now=market.now,
+            )
+        return selection
+
+    def _strike_for_mode(
+        self,
+        chain: ChainCache,
+        underlying: Underlying,
+        option_type: str,
+        bucket: ExpiryBucket,
+        spot: float,
+        mode: StrikeMode,
+        *,
+        now: dt.datetime,
+    ) -> StrikeSelection | None:
+        if mode == StrikeMode.ATM:
+            return self.select_strike(
+                chain,
+                underlying,
+                option_type,
+                bucket,
+                spot_price=spot,
+                atm_offset=0,
+                now=now,
+            )
+        if mode == StrikeMode.OTM_PLUS_ONE:
+            return self.select_strike(
+                chain,
+                underlying,
+                option_type,
+                bucket,
+                spot_price=spot,
+                atm_offset=1,
+                now=now,
+            )
+        return None
 
     def _pick_expiry_bucket(self, market: MarketState) -> ExpiryBucket:
         cfg = self.config.expiry
@@ -265,6 +354,26 @@ class DirectionalStrategy(Strategy):
         if not out:
             out.append(Action(kind=ActionType.NO_OP))
         return out
+
+
+def _iv_entry_blocked(desk: DirectionalDeskConfig, result: IvPercentileResult | None) -> bool:
+    if result is None or result.reason != "ok" or result.percentile is None:
+        return False
+    pct = result.percentile
+    if desk.max_iv_percentile_long is not None and pct > desk.max_iv_percentile_long:
+        return True
+    return desk.min_iv_percentile_long is not None and pct < desk.min_iv_percentile_long
+
+
+def _quote_greek_features(quote: QuoteSnapshot) -> dict[str, Any]:
+    return {
+        "leg_iv": quote.iv,
+        "leg_oi": quote.open_interest,
+        "leg_delta": quote.delta,
+        "leg_gamma": quote.gamma,
+        "leg_theta": quote.theta,
+        "leg_vega": quote.vega,
+    }
 
 
 def _decision(

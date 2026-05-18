@@ -16,6 +16,8 @@ from bot.data.chain_cache import (
     InstrumentRecord,
     QuoteSnapshot,
 )
+from bot.config.models import ExpiryBucket
+from bot.desk.iv_history import IvPercentileResult
 from bot.strategies.base import MarketState
 
 
@@ -218,12 +220,14 @@ def make_market_state(
     chain: ChainCache,
     candles_by_tf: dict[Underlying, dict[str, list[Candle]]],
     spots: dict[Underlying, float],
+    iv_percentiles: dict[tuple[Underlying, ExpiryBucket], IvPercentileResult] | None = None,
 ) -> MarketState:
     return MarketState(
         now=now,
         chain=chain,
         candles_by_tf=candles_by_tf,
         underlying_marks=spots,
+        iv_percentiles=iv_percentiles or {},
     )
 
 

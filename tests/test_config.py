@@ -32,6 +32,9 @@ def test_repo_global_yaml_loads() -> None:
     assert g.concurrency.max_total == 3
     assert g.concurrency.max_per_strategy == 1
     assert g.execution.spread_filter_max_pct == 0.08
+    assert g.desk.enabled is False
+    assert g.desk.min_open_interest == 50.0
+    assert g.desk.max_abs_net_delta_inr == 15000.0
 
 
 def test_repo_strategy_yamls_load_with_correct_types() -> None:
@@ -69,6 +72,26 @@ def test_unknown_strategy_id_raises(tmp_path: Path) -> None:
     )
     with pytest.raises(ConfigError, match="unknown strategy id"):
         load_strategy_configs(tmp_path)
+
+
+def test_desk_config_loads_when_enabled(tmp_path: Path) -> None:
+    _scaffold_configs(tmp_path)
+    (tmp_path / "global.yaml").write_text(
+        (tmp_path / "global.yaml").read_text()
+        + "\ndesk:\n  enabled: true\n  min_open_interest: 100\n"
+    )
+    g = load_global_config(tmp_path)
+    assert g.desk.enabled is True
+    assert g.desk.min_open_interest == 100.0
+
+
+def test_desk_extra_field_rejected(tmp_path: Path) -> None:
+    _scaffold_configs(tmp_path)
+    (tmp_path / "global.yaml").write_text(
+        (tmp_path / "global.yaml").read_text() + "\ndesk:\n  enabled: false\n  rogue: 1\n"
+    )
+    with pytest.raises(Exception):  # noqa: B017
+        load_global_config(tmp_path)
 
 
 def test_extra_field_rejected_in_global(tmp_path: Path) -> None:
