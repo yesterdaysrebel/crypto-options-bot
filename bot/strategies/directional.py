@@ -69,6 +69,15 @@ class DirectionalStrategy(Strategy):
 
     def _evaluate_one(self, market: MarketState, underlying: Underlying) -> dict[str, Any]:
         cfg = self.config
+        if self.context.is_underlying_in_cooldown(underlying.value, market.now):
+            return _decision(
+                self.id,
+                underlying,
+                None,
+                False,
+                "cooldown_active",
+                {"cooldown_underlying": underlying.value},
+            )
         spot = market.spot(underlying)
         if spot is None:
             return _decision(self.id, underlying, None, False, "missing_spot", {})
@@ -221,9 +230,18 @@ class DirectionalStrategy(Strategy):
         if mid <= (1 - cfg.premium_drawdown_pct) * entry:
             return [Action(kind=ActionType.CLOSE, close=CloseAction(reason=ExitTrigger.PREMIUM_STOP))]
 
+        trail_stop = position.current_trail_stop_price
+        if trail_stop is not None and mid <= float(trail_stop):
+            return [
+                Action(
+                    kind=ActionType.CLOSE,
+                    close=CloseAction(reason=ExitTrigger.TRAIL_BREAKEVEN),
+                )
+            ]
+
         if position.entry_underlying_price is not None and position.entry_atr is not None:
             spot_now = market.spot(position.underlying)
-            if spot_now is not None:
+            if spot_now is not None and mid <= entry:
                 long_side = leg.get("option_type") == "call"
                 adverse_move = (
                     (position.entry_underlying_price - spot_now)

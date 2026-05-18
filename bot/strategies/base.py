@@ -143,10 +143,18 @@ class StrategyContext:
     config: StrategyConfig
     last_evaluate_ts: dt.datetime | None = None
     cooldown_until: dt.datetime | None = None
+    underlying_cooldown_until: dict[str, dt.datetime] = field(default_factory=dict)
     notes: dict[str, Any] = field(default_factory=dict)
 
     def is_in_cooldown(self, now: dt.datetime) -> bool:
         return self.cooldown_until is not None and now < self.cooldown_until
+
+    def is_underlying_in_cooldown(self, underlying: str, now: dt.datetime) -> bool:
+        until = self.underlying_cooldown_until.get(underlying)
+        return until is not None and now < until
+
+    def set_underlying_cooldown(self, underlying: str, until: dt.datetime) -> None:
+        self.underlying_cooldown_until[underlying] = until
 
 
 class Strategy(ABC):

@@ -13,6 +13,7 @@ entry:
   atr_period: 14
   prior_bars: 4
   breakout_atr_mult: 0.25
+  cooldown_minutes_after_underlying_stop: 45
 
 expiry:
   prefer: D1
@@ -25,7 +26,7 @@ strike:
   fallback: OTM_PLUS_ONE
 
 exits:
-  target_r: 2.0
+  target_r: 1.5
   premium_drawdown_pct: 0.50
   underlying_atr_mult_stop: 1.0
   trail_breakeven_at_r: 1.0

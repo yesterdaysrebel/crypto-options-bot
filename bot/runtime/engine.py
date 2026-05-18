@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from bot.analytics.daily import DailyAggregator
+from bot.exits import ExitEngine, ExitKind, PositionRuntime
 from bot.analytics.decision_log import DecisionLogWriter
 from bot.analytics.journal import TradeJournal
 from bot.config.loader import load_all
@@ -72,6 +73,39 @@ from bot.strategies.base import ActionType, ExitTrigger, Intent, LegIntent, Trai
 
 WALLET_POLL_INTERVAL_S = 30.0
 OPEN_JOURNAL_REFRESH_S = 30.0
+
+
+def _apply_directional_underlying_stop_cooldown(
+    registry: StrategyRegistry,
+    trade: Trade,
+    *,
+    trigger: ExitTrigger,
+    now: dt.datetime,
+) -> None:
+    if trigger != ExitTrigger.UNDERLYING_STOP:
+        return
+    try:
+        strat = registry.get(StrategyId(trade.strategy_id))
+    except KeyError:
+        return
+    if not isinstance(strat, DirectionalStrategy):
+        return
+    minutes = float(strat.config.entry.cooldown_minutes_after_underlying_stop)
+    if minutes <= 0:
+        return
+    until = now + dt.timedelta(minutes=minutes)
+    strat.context.set_underlying_cooldown(trade.underlying, until)
+
+
+async def _persist_open_peak_pnl(db: Database, trade_id: int, peak_pnl_inr: float) -> None:
+    async with db.session() as session:
+        t = await session.get(Trade, trade_id)
+        if t is None:
+            return
+        notes = dict(t.notes or {})
+        prev = _note_float(notes, "peak_pnl_inr")
+        notes["peak_pnl_inr"] = peak_pnl_inr if prev is None else max(prev, peak_pnl_inr)
+        t.notes = notes
 
 
 def _note_float(notes: dict[str, Any], key: str) -> float | None:
@@ -537,21 +571,27 @@ async def _persist_exit(
             db_leg.status = LegStatus.CLOSED.value
             db_leg.exit_price = fill.avg_fill_price if fill else None
             db_leg.pnl_inr = None
-        session.add(
-            Order(
-                ts=res.completed_at or now,
-                strategy_id=trade.strategy_id,
-                trade_id=trade.id,
-                leg_idx=None,
-                client_order_id=f"exit-{trade.id}-{int(time.time())}",
-                symbol=legs[0].symbol if legs else "",
-                side="sell",
-                order_type=OrderType.MARKET.value,
-                qty=float(trade.lots),
-                filled_qty=float(trade.lots),
-                state=OrderState.FILLED.value,
+        exit_ts = res.completed_at or now
+        for fill in res.fills:
+            if fill.avg_fill_price is None:
+                continue
+            session.add(
+                Order(
+                    ts=exit_ts,
+                    strategy_id=trade.strategy_id,
+                    trade_id=trade.id,
+                    leg_idx=fill.leg_idx,
+                    client_order_id=fill.client_order_id,
+                    symbol=fill.symbol,
+                    side=fill.side.value,
+                    order_type=OrderType.MARKET.value,
+                    qty=fill.qty_requested,
+                    filled_qty=fill.qty_filled,
+                    filled_price=fill.avg_fill_price,
+                    state=OrderState.FILLED.value,
+                    raw_response=fill.raw_response,
+                )
             )
-        )
 
     metrics.trades_closed_total.labels(trade.strategy_id, trigger.value).inc()
     metrics.trade_pnl_inr.labels(trade.strategy_id).observe(realised)
@@ -595,6 +635,12 @@ async def run_trading_engine() -> None:
     )
     registry = StrategyRegistry(_build_strategies(app_config.strategies))
     dispatcher = StrategyDispatcher(registry)
+    exit_engine = ExitEngine(
+        registry,
+        trail_update_throttle_seconds=float(
+            app_config.global_config.execution.trail_update_throttle_seconds
+        ),
+    )
 
     rest = DeltaRestClient(settings)
     chain = ChainCache(rest)
@@ -650,7 +696,12 @@ async def run_trading_engine() -> None:
     last_daily_ist_date: dt.date | None = None
     tick_interval = 5.0
     open_journal_last: dict[int, float] = {}
-    engine_tick: dict[str, Any] = {"wallet_mono": 0.0, "open_journal": open_journal_last}
+    position_runtimes: dict[int, PositionRuntime] = {}
+    engine_tick: dict[str, Any] = {
+        "wallet_mono": 0.0,
+        "open_journal": open_journal_last,
+        "exit_runtimes": position_runtimes,
+    }
 
     async def chain_refresh_loop() -> None:
         while not stop.is_set():
@@ -772,19 +823,36 @@ async def run_trading_engine() -> None:
             if open_rows:
                 await refresh_all_open_trades(db, open_rows, chain, market, wallet_snapshot=wallet_snap)
             open_rows = await _load_open_trades(db)
+            open_ids = {t.id for t, _ in open_rows}
+            for tid in list(position_runtimes.keys()):
+                if tid not in open_ids:
+                    position_runtimes.pop(tid)
+
             positions = [_trade_to_position_state(t, legs, chain) for t, legs in open_rows]
             disp = dispatcher.evaluate_all(market)
-            disp = dispatcher.manage_all(positions, market, disp)
 
             records: list[dict[str, Any]] = list(disp.all_decisions)
 
-            for tid, actions in disp.actions_by_position.items():
-                trade = next((t for t, _ in open_rows if t.id == tid), None)
-                legs = next((ls for t, ls in open_rows if t.id == tid), [])
+            for pos in positions:
+                trade = next((t for t, _ in open_rows if t.id == pos.trade_id), None)
+                legs = next((ls for t, ls in open_rows if t.id == pos.trade_id), [])
                 if trade is None:
                     continue
-                for act in actions:
-                    if act.kind == ActionType.CLOSE and act.close is not None:
+                runtime = position_runtimes.get(pos.trade_id)
+                if runtime is None:
+                    runtime = PositionRuntime(position=pos)
+                    position_runtimes[pos.trade_id] = runtime
+                else:
+                    runtime.position = pos
+                directives = exit_engine.step(runtime, market)
+                peak = max(
+                    runtime.peak_pnl_inr,
+                    float(runtime.position.peak_pnl_inr or 0.0),
+                )
+                await _persist_open_peak_pnl(db, trade.id, peak)
+
+                for directive in directives:
+                    if directive.kind == ExitKind.CLOSE and directive.trigger is not None:
                         wallet_exit: dict[str, Any] | None = None
                         if api_ok:
                             try:
@@ -798,28 +866,36 @@ async def run_trading_engine() -> None:
                                 executor=executor,
                                 trade=trade,
                                 legs=legs,
-                                trigger=act.close.reason,
+                                trigger=directive.trigger,
                                 journal=journal,
                                 metrics=metrics,
                                 nav=nav_tracker,
                                 wallet_at_exit=wallet_exit,
                                 indicator_at_exit=ind_exit,
                             )
+                            _apply_directional_underlying_stop_cooldown(
+                                registry,
+                                trade,
+                                trigger=directive.trigger,
+                                now=now,
+                            )
+                            position_runtimes.pop(trade.id, None)
                         else:
-                            logger.warning("live exit not executed (dry-only engine) trade_id={}", tid)
-                    elif act.kind == ActionType.TRAIL_STOP and act.trail is not None and legs:
+                            logger.warning("live exit not executed (dry-only engine) trade_id={}", trade.id)
+                    elif directive.kind == ExitKind.UPDATE_STOP and directive.new_stop_price is not None:
+                        trail = TrailAction(new_stop_price=directive.new_stop_price)
                         if settings.is_dry:
                             await _persist_trail_stop(
                                 db=db,
                                 executor=executor,
                                 trade=trade,
                                 legs=legs,
-                                trail=act.trail,
+                                trail=trail,
                                 journal=journal,
                                 wallet_snapshot=wallet_snap,
                             )
                         else:
-                            logger.warning("live trail not executed trade_id={}", tid)
+                            logger.warning("live trail not executed trade_id={}", trade.id)
 
             accounting = await _accounting_snapshot(db)
             for intent in disp.all_intents:

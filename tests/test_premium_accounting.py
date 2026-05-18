@@ -152,3 +152,108 @@ def test_directional_premium_stop_fires_at_50pct_drawdown_per_lot() -> None:
         a.kind == ActionType.CLOSE and a.close is not None and a.close.reason == ExitTrigger.PREMIUM_STOP
         for a in actions
     )
+
+
+def test_directional_skips_underlying_stop_when_premium_in_profit() -> None:
+    """Trade #9 case: spot moved against call but option mid still above entry."""
+    now = dt.datetime(2026, 5, 17, 14, 0, 0)
+    spot_entry = 2186.92
+    spot_now = 2182.31
+    chain = make_chain(
+        underlying=Underlying.ETH,
+        expiry=now.replace(hour=17, minute=30),
+        strikes=[2180],
+        spot=spot_now,
+    )
+    candles = make_flat_candles(n=40, price=spot_now, base_range=2)
+    market = make_market_state(
+        now, chain=chain, candles_by_tf={Underlying.ETH: {"15m": candles}}, spots={Underlying.ETH: spot_now}
+    )
+    symbol = "C-ETH-2180-170526"
+    entry = 8.81
+    mid = 12.14
+    market.quote_for[symbol] = chain.get_quote(symbol)
+    assert market.quote_for[symbol] is not None
+    market.quote_for[symbol].bid = mid - 0.1  # type: ignore[union-attr]
+    market.quote_for[symbol].ask = mid + 0.1  # type: ignore[union-attr]
+
+    strat = DirectionalStrategy(directional_cfg())
+    position = PositionState(
+        trade_id=9,
+        strategy_id=StrategyId.DIRECTIONAL,
+        underlying=Underlying.ETH,
+        expiry=now.replace(hour=17, minute=30),
+        lots=10,
+        entry_ts=now,
+        entry_premium_inr=entry,
+        entry_underlying_price=spot_entry,
+        entry_atr=3.21,
+        leg_states=[{"symbol": symbol, "side": "buy", "option_type": "call", "current_mid": mid}],
+    )
+    actions = strat.manage(position, market)
+    close = [a for a in actions if a.kind == ActionType.CLOSE and a.close is not None]
+    assert not any(c.close.reason == ExitTrigger.UNDERLYING_STOP for c in close if c.close)
+
+
+def test_directional_trail_breach_closes() -> None:
+    now = dt.datetime(2026, 5, 17, 10, 0, 0)
+    spot = 100_000.0
+    chain = make_chain(
+        underlying=Underlying.BTC,
+        expiry=now.replace(hour=17, minute=30),
+        strikes=[100_000],
+        spot=spot,
+    )
+    candles = make_flat_candles(n=40, price=spot, base_range=100)
+    market = make_market_state(
+        now, chain=chain, candles_by_tf={Underlying.BTC: {"15m": candles}}, spots={Underlying.BTC: spot}
+    )
+    symbol = "C-BTC-100000-170526"
+    entry = 100.0
+    mid = 99.0
+    market.quote_for[symbol] = chain.get_quote(symbol)
+    assert market.quote_for[symbol] is not None
+    market.quote_for[symbol].bid = mid - 0.5  # type: ignore[union-attr]
+    market.quote_for[symbol].ask = mid + 0.5  # type: ignore[union-attr]
+
+    strat = DirectionalStrategy(directional_cfg())
+    position = PositionState(
+        trade_id=1,
+        strategy_id=StrategyId.DIRECTIONAL,
+        underlying=Underlying.BTC,
+        expiry=now.replace(hour=17, minute=30),
+        lots=1,
+        entry_ts=now,
+        entry_premium_inr=entry,
+        entry_underlying_price=spot,
+        entry_atr=200.0,
+        current_trail_stop_price=entry,
+        leg_states=[{"symbol": symbol, "side": "buy", "option_type": "call", "current_mid": mid}],
+    )
+    actions = strat.manage(position, market)
+    assert any(
+        a.kind == ActionType.CLOSE
+        and a.close is not None
+        and a.close.reason == ExitTrigger.TRAIL_BREAKEVEN
+        for a in actions
+    )
+
+
+def test_directional_underlying_cooldown_blocks_entry() -> None:
+    now = dt.datetime(2026, 5, 17, 10, 0, 0)
+    spot = 100_000.0
+    chain = make_chain(
+        underlying=Underlying.BTC,
+        expiry=now.replace(hour=17, minute=30),
+        strikes=list(range(95000, 105001, 500)),
+        spot=spot,
+    )
+    candles = make_flat_candles(n=40, price=spot, base_range=100)
+    market = make_market_state(
+        now, chain=chain, candles_by_tf={Underlying.BTC: {"15m": candles}}, spots={Underlying.BTC: spot}
+    )
+    strat = DirectionalStrategy(directional_cfg())
+    strat.context.set_underlying_cooldown("BTC", now + dt.timedelta(minutes=30))
+    _, decisions = strat.evaluate(market)
+    btc = next(d for d in decisions if d.get("underlying") == "BTC")
+    assert btc["reason"] == "cooldown_active"

@@ -127,6 +127,7 @@ class DirectionalEntry(BaseModel):
     atr_period: int = 14
     prior_bars: int = 4
     breakout_atr_mult: float = 0.25
+    cooldown_minutes_after_underlying_stop: Annotated[float, Field(ge=0)] = 45.0
 
 
 class DirectionalExpiry(BaseModel):

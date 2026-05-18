@@ -164,7 +164,7 @@ class ExitEngine:
                 )
             elif action.kind == ActionType.TRAIL_STOP and action.trail is not None:
                 new_stop = self._maybe_apply_chandelier(action.trail.new_stop_price, position, runtime)
-                if self._should_emit_trail(runtime, new_stop, market.now):
+                if self._should_emit_trail(position, runtime, new_stop, market.now):
                     runtime.last_trail_stop = new_stop
                     runtime.last_trail_update_ts = market.now
                     directives.append(
@@ -204,6 +204,7 @@ class ExitEngine:
 
     def _should_emit_trail(
         self,
+        position: PositionState,
         runtime: PositionRuntime,
         new_stop: float,
         now: dt.datetime,
@@ -214,4 +215,8 @@ class ExitEngine:
             elapsed = (now - runtime.last_trail_update_ts).total_seconds()
             if elapsed < self._throttle:
                 return False
-        return new_stop > runtime.last_trail_stop + 1e-6
+        leg = position.leg_states[0] if position.leg_states else {}
+        is_call = leg.get("option_type") == "call"
+        if is_call:
+            return new_stop > runtime.last_trail_stop + 1e-6
+        return new_stop < runtime.last_trail_stop - 1e-6
