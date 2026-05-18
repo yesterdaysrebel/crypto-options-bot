@@ -20,39 +20,53 @@ async def db():
     await database.aclose()
 
 
-def _seed_chain_with_iv(spot: float = 100_000.0, iv: float = 0.50) -> ChainCache:
+def _seed_chain_with_iv(
+    spot: float = 100_000.0,
+    iv: float = 0.50,
+    *,
+    now: dt.datetime | None = None,
+) -> ChainCache:
     from unittest.mock import AsyncMock
 
-    cache = ChainCache(AsyncMock())
-    today = dt.date.today()
-    expiry_str = today.strftime("%d%m%y")
-    sym = f"C-BTC-{int(spot)}-{expiry_str}"
-    cache._instruments_by_symbol = {}
     from bot.data.chain_cache import _product_to_record
 
-    product = {
-        "id": 1,
-        "symbol": sym,
-        "contract_type": "call_options",
-        "contract_value": 0.001,
-        "tick_size": 0.5,
-        "state": "live",
-    }
-    record = _product_to_record(product)
-    assert record is not None
-    cache._instruments_by_symbol[sym] = record
-    cache._quotes = synthesise_quotes(
-        [
+    now = now or dt.datetime(2026, 5, 18, 10, 0, 0)
+    # Same-calendar-day expiry so bucket_for_expiry(now, expiry) == D1.
+    expiry = dt.datetime(now.year, now.month, now.day, 12, 0, 0)
+    if expiry <= now:
+        expiry += dt.timedelta(hours=2)
+    expiry_str = expiry.strftime("%d%m%y")
+
+    cache = ChainCache(AsyncMock())
+    cache._instruments_by_symbol = {}
+    quotes: list[QuoteSnapshot] = []
+    pid = 1
+    for opt_letter, opt_type, delta in [("C", "call_options", 0.5), ("P", "put_options", -0.5)]:
+        sym = f"{opt_letter}-BTC-{int(spot)}-{expiry_str}"
+        record = _product_to_record(
+            {
+                "id": pid,
+                "symbol": sym,
+                "contract_type": opt_type,
+                "contract_value": 0.001,
+                "tick_size": 0.5,
+                "state": "live",
+            }
+        )
+        assert record is not None
+        cache._instruments_by_symbol[sym] = record
+        quotes.append(
             QuoteSnapshot(
                 symbol=sym,
                 bid=100.0,
                 ask=102.0,
                 mark_price=101.0,
                 iv=iv,
-                delta=0.5,
+                delta=delta,
             )
-        ]
-    )
+        )
+        pid += 1
+    cache._quotes = synthesise_quotes(quotes)
     return cache
 
 
@@ -89,10 +103,10 @@ async def test_iv_percentile_returns_rank_with_enough_samples(db) -> None:
 
 @pytest.mark.asyncio
 async def test_record_from_chain_respects_sample_interval(db) -> None:
-    store = IvHistoryStore(db, sample_interval_s=3600.0)
-    chain = _seed_chain_with_iv()
-    marks = {Underlying.BTC: 100_000.0}
     now = dt.datetime(2026, 5, 18, 10, 0, 0)
+    store = IvHistoryStore(db, sample_interval_s=3600.0)
+    chain = _seed_chain_with_iv(now=now)
+    marks = {Underlying.BTC: 100_000.0}
     n1 = await store.record_from_chain(chain, marks, now)
     n2 = await store.record_from_chain(chain, marks, now)
     assert n1 >= 1
