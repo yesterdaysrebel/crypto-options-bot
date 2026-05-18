@@ -53,7 +53,12 @@ def _risk_manager(desk: DeskConfig) -> RiskManager:
     }
     return RiskManager(
         global_config=g,
-        nav_tracker=NavTracker(nav_now=50_000.0),
+        nav_tracker=NavTracker(
+            nav_now=50_000.0,
+            nav_open_today=50_000.0,
+            nav_open_week=50_000.0,
+            peak_nav=50_000.0,
+        ),
         strategy_configs=scfg,
     )
 

@@ -135,11 +135,8 @@ def test_low_open_interest_rejects_condor() -> None:
         decay_per_pct=150.0,
         open_interest=200.0,
     )
-    thin_symbol = min(
-        (s for s in chain._quotes if s.startswith("P-")),
-        key=lambda s: chain._instruments_by_symbol[s].strike,
-    )
-    set_quote_open_interest(chain, thin_symbol, 5.0)
+    for symbol in chain._quotes:
+        set_quote_open_interest(chain, symbol, 5.0)
     state = make_market_state(now, chain=chain, candles_by_tf={}, spots={Underlying.BTC: spot})
     strat = IronCondorStrategy(condor_cfg(desk={"min_open_interest": 50}))
     intents, decisions = strat.evaluate(state)
@@ -168,7 +165,8 @@ def test_condor_passes_logs_wing_greeks() -> None:
     assert "long_put_delta" in fv
 
 
-def test_missing_greeks_on_wing_rejects_condor() -> None:
+def test_missing_greeks_blocks_condor_when_delta_band_empty() -> None:
+    """Delta-selected wings need greeks on quotes; clearing them prevents strike pick."""
     now = _friday_open_ist_as_utc()
     spot = 100_000.0
     chain = make_chain(
@@ -180,15 +178,12 @@ def test_missing_greeks_on_wing_rejects_condor() -> None:
         decay_per_pct=150.0,
         open_interest=200.0,
     )
-    wing_symbol = min(
-        (s for s in chain._quotes if s.startswith("C-")),
-        key=lambda s: chain._instruments_by_symbol[s].strike,
-    )
-    quote = chain.get_quote(wing_symbol)
-    assert quote is not None
-    chain.upsert_quote(replace(quote, delta=None))
+    for symbol in chain._quotes:
+        quote = chain.get_quote(symbol)
+        assert quote is not None
+        chain.upsert_quote(replace(quote, delta=None))
     state = make_market_state(now, chain=chain, candles_by_tf={}, spots={Underlying.BTC: spot})
     strat = IronCondorStrategy(condor_cfg(desk={"greeks_required": True}))
     intents, decisions = strat.evaluate(state)
     assert intents == []
-    assert any(d["reason"] == "missing_greeks" for d in decisions)
+    assert any(d["reason"] == "condor_delta_band_unfillable" for d in decisions)

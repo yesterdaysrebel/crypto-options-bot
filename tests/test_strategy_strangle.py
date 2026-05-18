@@ -143,8 +143,8 @@ def test_low_open_interest_rejects_strangle() -> None:
         spot=spot,
         open_interest=200.0,
     )
-    call_sym = next(s for s in chain._quotes if s.startswith("C-"))
-    set_quote_open_interest(chain, call_sym, 8.0)
+    for symbol in chain._quotes:
+        set_quote_open_interest(chain, symbol, 8.0)
     candles_15m = make_noisy_then_quiet_candles(
         noisy_n=1450,
         quiet_n=10,

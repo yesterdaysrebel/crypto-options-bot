@@ -22,7 +22,7 @@ def _selection(symbol: str, *, delta: float | None = 0.2, oi: float | None = 100
         tick_size=0.5,
     )
     quote = QuoteSnapshot(symbol=symbol, delta=delta, open_interest=oi, iv=0.5)
-    return StrikeSelection(instrument=inst, quote=quote)
+    return StrikeSelection(instrument=inst, quote=quote, selection_reason="test")
 
 
 def test_low_open_interest_fails() -> None:
