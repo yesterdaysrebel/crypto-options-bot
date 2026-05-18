@@ -216,7 +216,7 @@ class ExitEngine:
             if elapsed < self._throttle:
                 return False
         leg = position.leg_states[0] if position.leg_states else {}
-        is_call = leg.get("option_type") == "call"
+        is_call = str(leg.get("option_type", "")).lower() == "call"
         if is_call:
             return new_stop > runtime.last_trail_stop + 1e-6
         return new_stop < runtime.last_trail_stop - 1e-6

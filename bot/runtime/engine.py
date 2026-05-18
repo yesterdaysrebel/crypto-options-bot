@@ -33,8 +33,14 @@ from bot.exchange.rest import DeltaRestClient, DeltaRestError
 from bot.exchange.wallet import fetch_wallet_snapshot
 from bot.exchange.ws import DeltaWebSocketClient, Subscription
 from bot.execution.dry import DryExecutor
+from bot.execution.live import LiveExecutor
 from bot.execution.premium import per_lot_premium_from_net, realised_pnl_inr
-from bot.execution.router import EntryRequest, ExitRequest, LegSide
+from bot.execution.router import EntryRequest, ExecutionRouter, ExitRequest, LegSide
+from bot.runtime.nav_state import (
+    load_nav_tracker,
+    maybe_roll_ist_trading_day,
+    sync_circuit_breaker_from_risk,
+)
 from bot.observability.logging_setup import configure_logging
 from bot.observability.metrics import MetricsRegistry, TextfileCollector
 from bot.observability.server import MetricsServer
@@ -75,15 +81,12 @@ WALLET_POLL_INTERVAL_S = 30.0
 OPEN_JOURNAL_REFRESH_S = 30.0
 
 
-def _apply_directional_underlying_stop_cooldown(
+def _apply_directional_exit_cooldown(
     registry: StrategyRegistry,
     trade: Trade,
     *,
-    trigger: ExitTrigger,
     now: dt.datetime,
 ) -> None:
-    if trigger != ExitTrigger.UNDERLYING_STOP:
-        return
     try:
         strat = registry.get(StrategyId(trade.strategy_id))
     except KeyError:
@@ -95,17 +98,6 @@ def _apply_directional_underlying_stop_cooldown(
         return
     until = now + dt.timedelta(minutes=minutes)
     strat.context.set_underlying_cooldown(trade.underlying, until)
-
-
-async def _persist_open_peak_pnl(db: Database, trade_id: int, peak_pnl_inr: float) -> None:
-    async with db.session() as session:
-        t = await session.get(Trade, trade_id)
-        if t is None:
-            return
-        notes = dict(t.notes or {})
-        prev = _note_float(notes, "peak_pnl_inr")
-        notes["peak_pnl_inr"] = peak_pnl_inr if prev is None else max(prev, peak_pnl_inr)
-        t.notes = notes
 
 
 def _note_float(notes: dict[str, Any], key: str) -> float | None:
@@ -212,16 +204,6 @@ def _mark_underlying(symbol: str) -> Underlying | None:
     return None
 
 
-async def _load_peak_nav(db: Database, fallback: float) -> float:
-    async with db.session() as session:
-        row = (
-            await session.execute(select(NavHistory).order_by(NavHistory.trading_date.desc()).limit(1))
-        ).scalar_one_or_none()
-    if row is None:
-        return fallback
-    return max(float(fallback), float(row.peak_nav_inr))
-
-
 async def _load_open_trades(db: Database) -> list[tuple[Trade, list[Leg]]]:
     async with db.session() as session:
         stmt = (
@@ -294,7 +276,7 @@ async def _accounting_snapshot(db: Database) -> TradeAccountingSnapshot:
 async def _persist_entry_and_execute(
     *,
     db: Database,
-    executor: DryExecutor,
+    executor: ExecutionRouter,
     intent: Intent,
     sizing: SizingResult,
     market: MarketState,
@@ -447,7 +429,7 @@ async def _persist_entry_and_execute(
 async def _persist_trail_stop(
     *,
     db: Database,
-    executor: DryExecutor,
+    executor: ExecutionRouter,
     trade: Trade,
     legs: list[Leg],
     trail: TrailAction,
@@ -500,7 +482,7 @@ async def _persist_trail_stop(
 async def _persist_exit(
     *,
     db: Database,
-    executor: DryExecutor,
+    executor: ExecutionRouter,
     trade: Trade,
     legs: list[Leg],
     trigger: ExitTrigger,
@@ -616,16 +598,14 @@ async def run_trading_engine() -> None:
         settings.config_dir,
     )
 
+    if settings.is_live and not (settings.delta_api_key and settings.delta_api_secret):
+        raise RuntimeError("MODE=live requires DELTA_API_KEY and DELTA_API_SECRET")
+
     db = get_database(settings.db_url)
-    nav_now = float(app_config.effective_nav_inr)
-    peak = await _load_peak_nav(db, nav_now)
-    nav_tracker = NavTracker(
-        nav_now=nav_now,
-        nav_open_today=nav_now,
-        nav_open_week=nav_now,
-        peak_nav=max(peak, nav_now),
-        circuit_breaker_tripped=False,
-    )
+    nav_tracker = await load_nav_tracker(db, base_nav_inr=float(app_config.effective_nav_inr))
+    breaker_marker = settings.runtime_dir / "circuit_breaker.json"
+    if breaker_marker.exists():
+        nav_tracker.circuit_breaker_tripped = True
 
     strategy_cfgs = {s.id: s for s in app_config.strategies}
     risk = RiskManager(
@@ -644,7 +624,23 @@ async def run_trading_engine() -> None:
 
     rest = DeltaRestClient(settings)
     chain = ChainCache(rest)
-    executor = DryExecutor(chain)
+    exec_cfg = app_config.global_config.execution
+    if settings.is_live:
+        executor: ExecutionRouter = LiveExecutor(
+            rest,
+            chain,
+            slip_bps_directional=exec_cfg.slip_bps_directional,
+            slip_bps_condor=exec_cfg.slip_bps_condor,
+            slip_bps_strangle=exec_cfg.slip_bps_strangle,
+        )
+        logger.warning("LIVE mode: real orders will be sent to Delta Exchange India")
+    else:
+        executor = DryExecutor(
+            chain,
+            slip_bps_directional=exec_cfg.slip_bps_directional,
+            slip_bps_condor=exec_cfg.slip_bps_condor,
+            slip_bps_strangle=exec_cfg.slip_bps_strangle,
+        )
     decision_writer = DecisionLogWriter(
         db,
         mirror_path=settings.logs_dir / "decisions.jsonl",
@@ -685,7 +681,7 @@ async def run_trading_engine() -> None:
 
     server = MetricsServer(
         metrics,
-        host="0.0.0.0",
+        host=settings.prom_http_host,
         port=settings.prom_http_port,
         liveness_check=liveness,
         liveness_extra=liveness_extra,
@@ -694,7 +690,9 @@ async def run_trading_engine() -> None:
 
     last_textfile = time.monotonic()
     last_daily_ist_date: dt.date | None = None
+    last_ist_trading_date: dt.date | None = None
     tick_interval = 5.0
+    usd_inr = float(app_config.effective_usd_inr_rate)
     open_journal_last: dict[int, float] = {}
     position_runtimes: dict[int, PositionRuntime] = {}
     engine_tick: dict[str, Any] = {
@@ -802,12 +800,7 @@ async def run_trading_engine() -> None:
                     "1h": list(aggs["1h"].closed) + ([aggs["1h"].current] if aggs["1h"].current else []),
                 }
 
-            market = MarketState(
-                now=now,
-                chain=chain,
-                candles_by_tf=candles_by_tf,
-                underlying_marks=dict(underlying_marks),
-            )
+            last_ist_trading_date = maybe_roll_ist_trading_day(nav_tracker, now, last_ist_trading_date)
 
             wallet_snap: dict[str, Any] | None = None
             api_ok = bool(settings.delta_api_key and settings.delta_api_secret)
@@ -820,18 +813,27 @@ async def run_trading_engine() -> None:
                     logger.debug("wallet poll skipped: {}", exc)
 
             open_rows = await _load_open_trades(db)
-            if open_rows:
-                await refresh_all_open_trades(db, open_rows, chain, market, wallet_snapshot=wallet_snap)
-            open_rows = await _load_open_trades(db)
+            peak_by_trade: dict[int, float] = {}
+            quote_for: dict[str, QuoteSnapshot] = {}
+            for _t, legs in open_rows:
+                for leg in legs:
+                    q = chain.get_quote(leg.symbol)
+                    if q is not None:
+                        quote_for[leg.symbol] = q
+            market = MarketState(
+                now=now,
+                chain=chain,
+                candles_by_tf=candles_by_tf,
+                underlying_marks=dict(underlying_marks),
+                quote_for=quote_for,
+                usd_inr_rate=usd_inr,
+            )
             open_ids = {t.id for t, _ in open_rows}
             for tid in list(position_runtimes.keys()):
                 if tid not in open_ids:
                     position_runtimes.pop(tid)
 
             positions = [_trade_to_position_state(t, legs, chain) for t, legs in open_rows]
-            disp = dispatcher.evaluate_all(market)
-
-            records: list[dict[str, Any]] = list(disp.all_decisions)
 
             for pos in positions:
                 trade = next((t for t, _ in open_rows if t.id == pos.trade_id), None)
@@ -849,7 +851,7 @@ async def run_trading_engine() -> None:
                     runtime.peak_pnl_inr,
                     float(runtime.position.peak_pnl_inr or 0.0),
                 )
-                await _persist_open_peak_pnl(db, trade.id, peak)
+                peak_by_trade[trade.id] = peak
 
                 for directive in directives:
                     if directive.kind == ExitKind.CLOSE and directive.trigger is not None:
@@ -860,49 +862,51 @@ async def run_trading_engine() -> None:
                             except DeltaRestError as exc:
                                 logger.debug("wallet at exit: {}", exc)
                         ind_exit = indicator_snapshot_for_trade(trade, market)
-                        if settings.is_dry:
-                            await _persist_exit(
-                                db=db,
-                                executor=executor,
-                                trade=trade,
-                                legs=legs,
-                                trigger=directive.trigger,
-                                journal=journal,
-                                metrics=metrics,
-                                nav=nav_tracker,
-                                wallet_at_exit=wallet_exit,
-                                indicator_at_exit=ind_exit,
-                            )
-                            _apply_directional_underlying_stop_cooldown(
-                                registry,
-                                trade,
-                                trigger=directive.trigger,
-                                now=now,
-                            )
-                            position_runtimes.pop(trade.id, None)
-                        else:
-                            logger.warning("live exit not executed (dry-only engine) trade_id={}", trade.id)
+                        await _persist_exit(
+                            db=db,
+                            executor=executor,
+                            trade=trade,
+                            legs=legs,
+                            trigger=directive.trigger,
+                            journal=journal,
+                            metrics=metrics,
+                            nav=nav_tracker,
+                            wallet_at_exit=wallet_exit,
+                            indicator_at_exit=ind_exit,
+                        )
+                        _apply_directional_exit_cooldown(registry, trade, now=now)
+                        position_runtimes.pop(trade.id, None)
                     elif directive.kind == ExitKind.UPDATE_STOP and directive.new_stop_price is not None:
                         trail = TrailAction(new_stop_price=directive.new_stop_price)
-                        if settings.is_dry:
-                            await _persist_trail_stop(
-                                db=db,
-                                executor=executor,
-                                trade=trade,
-                                legs=legs,
-                                trail=trail,
-                                journal=journal,
-                                wallet_snapshot=wallet_snap,
-                            )
-                        else:
-                            logger.warning("live trail not executed trade_id={}", trade.id)
+                        await _persist_trail_stop(
+                            db=db,
+                            executor=executor,
+                            trade=trade,
+                            legs=legs,
+                            trail=trail,
+                            journal=journal,
+                            wallet_snapshot=wallet_snap,
+                        )
+
+            if open_rows:
+                await refresh_all_open_trades(
+                    db,
+                    open_rows,
+                    chain,
+                    market,
+                    wallet_snapshot=wallet_snap,
+                    peak_pnl_by_trade=peak_by_trade,
+                )
+
+            disp = dispatcher.evaluate_all(market)
+            records: list[dict[str, Any]] = list(disp.all_decisions)
 
             accounting = await _accounting_snapshot(db)
             for intent in disp.all_intents:
                 sizing = risk.gate(intent, now_utc=now, accounting=accounting)
                 records.append(_risk_record(intent, sizing))
                 metrics.intents_total.labels(intent.strategy_id.value).inc()
-                if sizing.approved and settings.is_dry:
+                if sizing.approved:
                     entry_wallet = wallet_snap
                     if entry_wallet is None and api_ok:
                         try:
@@ -915,14 +919,20 @@ async def run_trading_engine() -> None:
                         intent=intent,
                         sizing=sizing,
                         market=market,
-                        mode="dry",
+                        mode=settings.mode.value,
                         journal=journal,
                         wallet_at_entry=entry_wallet,
                     )
                     metrics.trades_opened_total.labels(intent.strategy_id.value).inc()
                     accounting = await _accounting_snapshot(db)
-                elif sizing.approved and not settings.is_dry:
-                    logger.warning("intent approved but live execution is not enabled in engine")
+
+            await sync_circuit_breaker_from_risk(
+                db,
+                nav_tracker,
+                risk,
+                runtime_dir=settings.runtime_dir,
+                now_utc=now,
+            )
 
             open_after = await _load_open_trades(db)
             m_journal = time.monotonic()

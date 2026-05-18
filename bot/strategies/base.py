@@ -128,6 +128,13 @@ class MarketState:
     candles_by_tf: dict[Underlying, dict[str, list[Candle]]]
     underlying_marks: dict[Underlying, float]
     quote_for: dict[str, QuoteSnapshot] = field(default_factory=dict)
+    usd_inr_rate: float = 1.0
+
+    def premium_inr(self, mid: float | None) -> float | None:
+        """Convert exchange quote mid (USD on Delta India) to INR for risk sizing."""
+        if mid is None:
+            return None
+        return float(mid) * self.usd_inr_rate
 
     def candles(self, underlying: Underlying, timeframe: str) -> list[Candle]:
         return self.candles_by_tf.get(underlying, {}).get(timeframe, [])

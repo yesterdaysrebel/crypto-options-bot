@@ -195,6 +195,48 @@ def test_directional_skips_underlying_stop_when_premium_in_profit() -> None:
     assert not any(c.close.reason == ExitTrigger.UNDERLYING_STOP for c in close if c.close)
 
 
+def test_directional_trail_breakeven_requires_full_r_on_multi_lot() -> None:
+    """peak_pnl is total INR; breakeven at 1R needs entry * lots profit, not entry alone."""
+    now = dt.datetime(2026, 5, 17, 10, 0, 0)
+    spot = 100_000.0
+    chain = make_chain(
+        underlying=Underlying.BTC,
+        expiry=now.replace(hour=17, minute=30),
+        strikes=[100_000],
+        spot=spot,
+    )
+    candles = make_flat_candles(n=40, price=spot, base_range=100)
+    market = make_market_state(
+        now, chain=chain, candles_by_tf={Underlying.BTC: {"15m": candles}}, spots={Underlying.BTC: spot}
+    )
+    symbol = "C-BTC-100000-170526"
+    entry = 100.0
+    mid = 150.0  # +50/lot but only 0.5R on 10 lots (need +100/lot for 1R)
+    market.quote_for[symbol] = chain.get_quote(symbol)
+    assert market.quote_for[symbol] is not None
+    market.quote_for[symbol].bid = mid - 0.5  # type: ignore[union-attr]
+    market.quote_for[symbol].ask = mid + 0.5  # type: ignore[union-attr]
+
+    strat = DirectionalStrategy(directional_cfg())
+    position = PositionState(
+        trade_id=1,
+        strategy_id=StrategyId.DIRECTIONAL,
+        underlying=Underlying.BTC,
+        expiry=now.replace(hour=17, minute=30),
+        lots=10,
+        entry_ts=now,
+        entry_premium_inr=entry,
+        entry_underlying_price=spot,
+        entry_atr=200.0,
+        peak_pnl_inr=500.0,
+        leg_states=[{"symbol": symbol, "side": "buy", "option_type": "call", "current_mid": mid}],
+    )
+    actions = strat.manage(position, market)
+    assert not any(
+        a.kind == ActionType.TRAIL_STOP for a in actions
+    ), "0.5R total peak should not arm breakeven trail at 1R config"
+
+
 def test_directional_trail_breach_closes() -> None:
     now = dt.datetime(2026, 5, 17, 10, 0, 0)
     spot = 100_000.0
@@ -237,6 +279,19 @@ def test_directional_trail_breach_closes() -> None:
         and a.close.reason == ExitTrigger.TRAIL_BREAKEVEN
         for a in actions
     )
+
+
+def test_directional_exit_cooldown_applies_after_any_close() -> None:
+    from bot.runtime.engine import _apply_directional_exit_cooldown
+    from bot.strategies import StrategyRegistry
+
+    now = dt.datetime(2026, 5, 17, 10, 0, 0)
+    strat = DirectionalStrategy(directional_cfg())
+    registry = StrategyRegistry([strat])
+    trade = type("T", (), {"strategy_id": "directional", "underlying": "BTC"})()
+    _apply_directional_exit_cooldown(registry, trade, now=now)
+    assert strat.context.is_underlying_in_cooldown("BTC", now + dt.timedelta(minutes=1))
+    assert not strat.context.is_underlying_in_cooldown("BTC", now + dt.timedelta(minutes=60))
 
 
 def test_directional_underlying_cooldown_blocks_entry() -> None:

@@ -263,15 +263,17 @@ class IronCondorStrategy(Strategy):
             requested_lots=cfg.max_lots_cap,
             rationale="iron_condor_weekly",
             feature_vector=feature_vector,
-            target_credit_inr=credit,
-            target_max_loss_inr=max_loss,
+            target_credit_inr=market.premium_inr(credit),
+            target_max_loss_inr=market.premium_inr(max_loss),
         )
         out_intents.append(intent)
         return _decision(self.id, underlying, None, True, "passed", feature_vector)
 
     def manage(self, position: PositionState, market: MarketState) -> list[Action]:
         cfg = self.config.exits
-        days_to_expiry = (position.expiry.date() - market.now.date()).days
+        expiry_ist = utc_to_ist(position.expiry).date()
+        now_ist = utc_to_ist(market.now).date()
+        days_to_expiry = (expiry_ist - now_ist).days
 
         if days_to_expiry <= cfg.force_close_days_before_expiry:
             return [Action(kind=ActionType.CLOSE, close=CloseAction(reason=ExitTrigger.FORCE_CLOSE_EXPIRY))]

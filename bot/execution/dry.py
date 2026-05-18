@@ -35,7 +35,7 @@ class DryExecutor(ExecutionRouter):
         slip_bps_directional: int = 50,
         slip_bps_condor: int = 100,
         slip_bps_strangle: int = 50,
-        seed: int | None = 42,
+        seed: int | None = None,
     ) -> None:
         self._chain = chain
         self._slip_bps = {

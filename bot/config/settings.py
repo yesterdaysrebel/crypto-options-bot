@@ -66,6 +66,7 @@ class Settings(BaseSettings):
         validation_alias="PROM_TEXTFILE_PATH",
     )
     prom_http_port: int = Field(default=9091, validation_alias="PROM_HTTP_PORT", ge=1024, le=65535)
+    prom_http_host: str = Field(default="127.0.0.1", validation_alias="PROM_HTTP_HOST")
 
     nav_inr_override: float | None = Field(default=None, validation_alias="BOT_NAV_INR")
     usd_inr_rate_override: float | None = Field(default=None, validation_alias="BOT_USD_INR_RATE")

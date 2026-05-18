@@ -17,7 +17,8 @@ from tests.strategy_fixtures import (
 
 
 def _spot_today() -> tuple[dt.datetime, float]:
-    return dt.datetime(2026, 5, 12, 10, 0, 0), 100000.0
+    # 09:30 IST == 04:00 UTC; same-day close 17:30 IST == 12:00 UTC
+    return dt.datetime(2026, 5, 12, 4, 0, 0), 100000.0
 
 
 def _ranges_of_strikes() -> list[int]:
@@ -26,7 +27,7 @@ def _ranges_of_strikes() -> list[int]:
 
 def test_breakout_long_emits_intent() -> None:
     now, spot = _spot_today()
-    expiry_today = now.replace(hour=17, minute=30)
+    expiry_today = dt.datetime(2026, 5, 12, 12, 0, 0)
     chain = make_chain(
         underlying=Underlying.BTC,
         expiry=expiry_today,
@@ -83,7 +84,7 @@ def test_flat_market_does_not_fire() -> None:
 
 def test_short_setup_emits_put_intent() -> None:
     now, spot = _spot_today()
-    expiry_today = now.replace(hour=17, minute=30)
+    expiry_today = dt.datetime(2026, 5, 12, 12, 0, 0)
     chain = make_chain(
         underlying=Underlying.BTC,
         expiry=expiry_today,

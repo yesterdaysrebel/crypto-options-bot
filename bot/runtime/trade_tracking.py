@@ -54,9 +54,19 @@ async def refresh_all_open_trades(
     market: MarketState,
     *,
     wallet_snapshot: dict[str, Any] | None,
+    peak_pnl_by_trade: dict[int, float] | None = None,
 ) -> None:
+    peaks = peak_pnl_by_trade or {}
     for trade, legs in open_rows:
-        await refresh_open_trade_notes(db, trade, legs, chain, market, wallet_snapshot=wallet_snapshot)
+        await refresh_open_trade_notes(
+            db,
+            trade,
+            legs,
+            chain,
+            market,
+            wallet_snapshot=wallet_snapshot,
+            peak_pnl_inr=peaks.get(trade.id),
+        )
 
 
 async def refresh_open_trade_notes(
@@ -67,6 +77,7 @@ async def refresh_open_trade_notes(
     market: MarketState,
     *,
     wallet_snapshot: dict[str, Any] | None,
+    peak_pnl_inr: float | None = None,
 ) -> None:
     """Update `trade.notes` with latest indicators, wallet (throttled by caller), unrealised + peak PnL."""
     ind = indicator_snapshot_for_trade(trade, market)
@@ -81,6 +92,14 @@ async def refresh_open_trade_notes(
             notes["wallet_last_tick"] = wallet_snapshot
         if unreal is not None:
             notes["unrealized_pnl_inr"] = unreal
+        if peak_pnl_inr is not None:
+            prev_peak = notes.get("peak_pnl_inr")
+            try:
+                prev_peak_f = float(prev_peak) if prev_peak is not None else peak_pnl_inr
+            except (TypeError, ValueError):
+                prev_peak_f = peak_pnl_inr
+            notes["peak_pnl_inr"] = max(prev_peak_f, peak_pnl_inr)
+        elif unreal is not None:
             prev_peak = notes.get("peak_pnl_inr")
             try:
                 prev_peak_f = float(prev_peak) if prev_peak is not None else unreal

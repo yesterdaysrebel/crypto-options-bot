@@ -32,6 +32,7 @@ from bot.config.models import (
     Underlying,
 )
 from bot.data.candles import atr, ema
+from bot.risk.window import india_options_session_close_utc
 from bot.strategies.base import (
     Action,
     ActionType,
@@ -180,7 +181,7 @@ class DirectionalStrategy(Strategy):
             requested_lots=cfg.max_lots_cap,
             rationale=f"directional_{option_type}_atr_breakout",
             feature_vector={**feature_vector, "spread_pct": spread, "mid": selection.quote.mid},
-            target_premium_inr=selection.quote.mid,
+            target_premium_inr=market.premium_inr(selection.quote.mid),
             spread_pct_max=self._spread_pct_max,
         )
 
@@ -198,7 +199,7 @@ class DirectionalStrategy(Strategy):
     def _pick_expiry_bucket(self, market: MarketState) -> ExpiryBucket:
         cfg = self.config.expiry
         now = market.now
-        same_day_close = now.replace(hour=17, minute=30, second=0, microsecond=0)
+        same_day_close = india_options_session_close_utc(now)
         hours_to_d1_close = (same_day_close - now).total_seconds() / 3600.0
         if hours_to_d1_close >= cfg.d1_dte_threshold_hours:
             return cfg.prefer
@@ -253,9 +254,10 @@ class DirectionalStrategy(Strategy):
                         Action(kind=ActionType.CLOSE, close=CloseAction(reason=ExitTrigger.UNDERLYING_STOP))
                     ]
 
+        risk_per_lot = entry * max(position.lots, 1)
         if (
             position.peak_pnl_inr is not None
-            and position.peak_pnl_inr >= cfg.trail_breakeven_at_r * entry
+            and position.peak_pnl_inr >= cfg.trail_breakeven_at_r * risk_per_lot
             and position.current_trail_stop_price is None
         ):
             out.append(Action(kind=ActionType.TRAIL_STOP, trail=TrailAction(new_stop_price=entry)))

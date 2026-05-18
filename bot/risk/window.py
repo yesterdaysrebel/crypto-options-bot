@@ -12,6 +12,15 @@ def utc_to_ist(now: dt.datetime) -> dt.datetime:
     return now.replace(tzinfo=dt.UTC).astimezone(IST)
 
 
+def india_options_session_close_utc(now_utc: dt.datetime) -> dt.datetime:
+    """Next India cash-session options close (17:30 IST) as naive UTC."""
+    local = utc_to_ist(now_utc)
+    close_local = local.replace(hour=17, minute=30, second=0, microsecond=0)
+    if local.time() >= dt.time(17, 30):
+        close_local += dt.timedelta(days=1)
+    return close_local.astimezone(dt.UTC).replace(tzinfo=None)
+
+
 def within_minutes_of_ist_time(now_utc: dt.datetime, target_ist: dt.time, *, minutes: int) -> bool:
     """True when `now_utc` falls within +/- `minutes` of `target_ist` on the IST clock."""
     local_time = utc_to_ist(now_utc).time().replace(microsecond=0)

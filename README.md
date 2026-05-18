@@ -26,8 +26,8 @@ make status                      # one-screen dashboard
 
 ## Modes
 
-- `BOT_MODE=dry` — same code path as live; execution shim simulates fills
-- `BOT_MODE=live` — real orders to Delta India
+- `BOT_MODE=dry` — simulated fills via `DryExecutor` (default)
+- `BOT_MODE=live` — real orders via `LiveExecutor` (requires `DELTA_API_KEY` / `DELTA_API_SECRET` and per-strategy `enabled_live` via `make go-live`)
 
 ## Per-strategy go-live
 

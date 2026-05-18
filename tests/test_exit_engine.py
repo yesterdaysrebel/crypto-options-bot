@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import datetime as dt
 
+import pytest
+
 from bot.config.models import StrategyId, Underlying
 from bot.data.chain_cache import QuoteSnapshot
 from bot.exits import ExitDirective, ExitEngine, ExitKind, PositionRuntime
@@ -99,7 +101,8 @@ def test_directional_premium_drawdown_emits_close() -> None:
 def test_directional_trail_breakeven_after_1r_peak() -> None:
     strat = DirectionalStrategy(directional_cfg())
     engine = ExitEngine(StrategyRegistry([strat]))
-    state = _make_market_directional(with_quote_mid=199.0)
+    # lots=3: 1R needs peak >= entry*lots; mid=201 -> peak = 303 INR
+    state = _make_market_directional(with_quote_mid=201.0)
     runtime = PositionRuntime(position=_make_position_directional(entry=100.0))
     directives = engine.step(runtime, state)
     update_stops = [d for d in directives if d.kind == ExitKind.UPDATE_STOP]
@@ -233,6 +236,32 @@ def test_strangle_force_close_t_minus_4h() -> None:
     runtime = PositionRuntime(position=pos)
     directives = engine.step(runtime, state)
     assert any(d.kind == ExitKind.CLOSE and d.trigger == ExitTrigger.FORCE_CLOSE_EXPIRY for d in directives)
+
+
+def test_put_trail_emits_when_stop_tightens() -> None:
+    strat = DirectionalStrategy(directional_cfg())
+    engine = ExitEngine(StrategyRegistry([strat]), trail_update_throttle_seconds=0.0)
+    sym = "P-BTC-99000-130524"
+    state = _make_market_directional(with_quote_mid=210.0)
+    state.quote_for[sym] = QuoteSnapshot(
+        symbol=sym, bid=209.0, ask=211.0, mark_price=210.0
+    )
+    pos = PositionState(
+        trade_id=5,
+        strategy_id=StrategyId.DIRECTIONAL,
+        underlying=Underlying.BTC,
+        expiry=_now() + dt.timedelta(days=1),
+        lots=1,
+        entry_ts=_now(),
+        entry_premium_inr=100.0,
+        entry_underlying_price=_spot(),
+        entry_atr=200.0,
+        leg_states=[{"symbol": sym, "side": "buy", "option_type": "put", "current_mid": 210.0}],
+    )
+    runtime = PositionRuntime(position=pos)
+    directives = engine.step(runtime, state)
+    assert any(d.kind == ExitKind.UPDATE_STOP for d in directives)
+    assert runtime.last_trail_stop == pytest.approx(100.0)
 
 
 def test_trail_throttle_suppresses_duplicate_updates() -> None:

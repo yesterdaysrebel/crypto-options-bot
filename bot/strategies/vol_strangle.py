@@ -212,7 +212,7 @@ class VolStrangleStrategy(Strategy):
                 "call_delta": call_sel.quote.delta,
                 "put_delta": put_sel.quote.delta,
             },
-            target_premium_inr=total_premium,
+            target_premium_inr=market.premium_inr(total_premium),
         )
         payload = _decision(
             self.id, underlying, None, True, "passed", {**feature_vector, "total_premium": total_premium}
