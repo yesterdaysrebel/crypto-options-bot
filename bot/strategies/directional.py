@@ -273,17 +273,15 @@ class DirectionalStrategy(Strategy):
                 atm_offset=0,
                 now=now,
             )
-        if mode == StrikeMode.OTM_PLUS_ONE:
-            return self.select_strike(
-                chain,
-                underlying,
-                option_type,
-                bucket,
-                spot_price=spot,
-                atm_offset=1,
-                now=now,
-            )
-        return None
+        return self.select_strike(
+            chain,
+            underlying,
+            option_type,
+            bucket,
+            spot_price=spot,
+            atm_offset=1,
+            now=now,
+        )
 
     def _pick_expiry_bucket(self, market: MarketState) -> ExpiryBucket:
         cfg = self.config.expiry
