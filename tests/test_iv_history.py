@@ -102,11 +102,34 @@ async def test_iv_percentile_returns_rank_with_enough_samples(db) -> None:
 
 
 @pytest.mark.asyncio
-async def test_record_from_chain_respects_sample_interval(db) -> None:
+async def test_should_sample_respects_interval() -> None:
+    from unittest.mock import AsyncMock
+
+    store = IvHistoryStore(AsyncMock(), sample_interval_s=3600.0)
+    key = (Underlying.BTC.value, ExpiryBucket.D1.value)
+    assert store._should_sample(key) is True
+    assert store._should_sample(key) is False
+
+
+@pytest.mark.asyncio
+async def test_record_from_chain_respects_sample_interval(db, monkeypatch) -> None:
+    """Throttle is per (underlying, bucket); chain sampling is stubbed for determinism."""
     now = dt.datetime(2026, 5, 18, 10, 0, 0)
     store = IvHistoryStore(db, sample_interval_s=3600.0)
     chain = _seed_chain_with_iv(now=now)
     marks = {Underlying.BTC: 100_000.0}
+
+    def _fake_atm_sample(
+        _chain: ChainCache,
+        _underlying: Underlying,
+        _bucket: ExpiryBucket,
+        _spot: float,
+        _now: dt.datetime,
+    ) -> tuple[float, dt.date] | None:
+        return (0.50, _now.date())
+
+    monkeypatch.setattr("bot.desk.iv_history._atm_iv_sample", _fake_atm_sample)
+
     n1 = await store.record_from_chain(chain, marks, now)
     n2 = await store.record_from_chain(chain, marks, now)
     assert n1 >= 1
