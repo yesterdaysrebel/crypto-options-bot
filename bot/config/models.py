@@ -169,6 +169,15 @@ class DirectionalDeskConfig(BaseModel):
     prefer_delta_strike: Annotated[float, Field(gt=0, lt=1)] | None = None
 
 
+class StrategyLegDeskConfig(BaseModel):
+    """Liquidity / greek gates for multi-leg entries (condor, strangle)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    min_open_interest: Annotated[float, Field(ge=0)] = 0.0
+    greeks_required: bool = True
+
+
 class DirectionalExits(BaseModel):
     model_config = ConfigDict(extra="forbid")
     target_r: Annotated[float, Field(gt=0)] = 2.0
@@ -233,6 +242,7 @@ class IronCondorConfig(BaseStrategyConfig):
     entry: CondorEntry = CondorEntry()
     wings: CondorWings = CondorWings()
     credit: CondorCredit = CondorCredit()
+    desk: StrategyLegDeskConfig = StrategyLegDeskConfig()
     exits: CondorExits = CondorExits()
 
 
@@ -280,6 +290,7 @@ class VolStrangleConfig(BaseStrategyConfig):
     setup: VolStrangleSetup = VolStrangleSetup()
     expiry: VolStrangleExpiry = VolStrangleExpiry()
     strike: VolStrangleStrike = VolStrangleStrike()
+    desk: StrategyLegDeskConfig = StrategyLegDeskConfig()
     exits: VolStrangleExits = VolStrangleExits()
 
 

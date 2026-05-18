@@ -4,11 +4,12 @@ non-Friday → 0 intents; credit too thin → reason='credit_too_thin'."""
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import replace
 
 from bot.config.models import StrategyId, Underlying
 from bot.strategies.iron_condor import IronCondorStrategy
 
-from tests.strategy_fixtures import condor_cfg, make_chain, make_market_state
+from tests.strategy_fixtures import condor_cfg, make_chain, make_market_state, set_quote_open_interest
 
 
 def _friday_open_ist_as_utc() -> dt.datetime:
@@ -120,3 +121,74 @@ def test_credit_too_thin_rejected() -> None:
     intents, decisions = strat.evaluate(state)
     assert intents == []
     assert any(d["reason"] == "credit_too_thin" for d in decisions)
+
+
+def test_low_open_interest_rejects_condor() -> None:
+    now = _friday_open_ist_as_utc()
+    spot = 100_000.0
+    chain = make_chain(
+        underlying=Underlying.BTC,
+        expiry=now + dt.timedelta(days=7),
+        strikes=_strikes(),
+        spot=spot,
+        atm_mid=1000.0,
+        decay_per_pct=150.0,
+        open_interest=200.0,
+    )
+    thin_symbol = min(
+        (s for s in chain._quotes if s.startswith("P-")),
+        key=lambda s: chain._instruments_by_symbol[s].strike,
+    )
+    set_quote_open_interest(chain, thin_symbol, 5.0)
+    state = make_market_state(now, chain=chain, candles_by_tf={}, spots={Underlying.BTC: spot})
+    strat = IronCondorStrategy(condor_cfg(desk={"min_open_interest": 50}))
+    intents, decisions = strat.evaluate(state)
+    assert intents == []
+    assert any(d["reason"] == "low_open_interest" for d in decisions)
+
+
+def test_condor_passes_logs_wing_greeks() -> None:
+    now = _friday_open_ist_as_utc()
+    spot = 100_000.0
+    chain = make_chain(
+        underlying=Underlying.BTC,
+        expiry=now + dt.timedelta(days=7),
+        strikes=_strikes(),
+        spot=spot,
+        atm_mid=1000.0,
+        decay_per_pct=150.0,
+        open_interest=200.0,
+    )
+    state = make_market_state(now, chain=chain, candles_by_tf={}, spots={Underlying.BTC: spot})
+    strat = IronCondorStrategy(condor_cfg(desk={"min_open_interest": 50}))
+    intents, decisions = strat.evaluate(state)
+    assert len(intents) == 1
+    fv = next(d["feature_vector"] for d in decisions if d["passed"])
+    assert "short_call_iv" in fv
+    assert "long_put_delta" in fv
+
+
+def test_missing_greeks_on_wing_rejects_condor() -> None:
+    now = _friday_open_ist_as_utc()
+    spot = 100_000.0
+    chain = make_chain(
+        underlying=Underlying.BTC,
+        expiry=now + dt.timedelta(days=7),
+        strikes=_strikes(),
+        spot=spot,
+        atm_mid=1000.0,
+        decay_per_pct=150.0,
+        open_interest=200.0,
+    )
+    wing_symbol = min(
+        (s for s in chain._quotes if s.startswith("C-")),
+        key=lambda s: chain._instruments_by_symbol[s].strike,
+    )
+    quote = chain.get_quote(wing_symbol)
+    assert quote is not None
+    chain.upsert_quote(replace(quote, delta=None))
+    state = make_market_state(now, chain=chain, candles_by_tf={}, spots={Underlying.BTC: spot})
+    strat = IronCondorStrategy(condor_cfg(desk={"greeks_required": True}))
+    intents, decisions = strat.evaluate(state)
+    assert intents == []
+    assert any(d["reason"] == "missing_greeks" for d in decisions)

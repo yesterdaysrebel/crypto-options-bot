@@ -27,6 +27,7 @@ from bot.config.models import (
     Underlying,
     VolStrangleConfig,
 )
+from bot.desk.leg_liquidity import check_multi_leg_liquidity
 from bot.data.candles import atr, bollinger_width, percentile_rank
 from bot.strategies.base import (
     Action,
@@ -181,6 +182,23 @@ class VolStrangleStrategy(Strategy):
         if call_sel is None or put_sel is None or call_sel.quote.mid is None or put_sel.quote.mid is None:
             return _decision(self.id, underlying, None, False, "no_acceptable_strike", feature_vector)
 
+        liquidity = check_multi_leg_liquidity(
+            [("call", call_sel), ("put", put_sel)],
+            min_open_interest=cfg.desk.min_open_interest,
+            greeks_required=cfg.desk.greeks_required,
+        )
+        if liquidity.features:
+            feature_vector.update(liquidity.features)
+        if not liquidity.ok:
+            return _decision(
+                self.id,
+                underlying,
+                liquidity.symbol,
+                False,
+                liquidity.reason or "filter_failed",
+                feature_vector,
+            )
+
         total_premium = float(call_sel.quote.mid + put_sel.quote.mid)
         legs = [
             LegIntent(
@@ -206,12 +224,7 @@ class VolStrangleStrategy(Strategy):
             legs=legs,
             requested_lots=cfg.max_lots_cap,
             rationale="vol_breakout_long_strangle",
-            feature_vector={
-                **feature_vector,
-                "total_premium": total_premium,
-                "call_delta": call_sel.quote.delta,
-                "put_delta": put_sel.quote.delta,
-            },
+            feature_vector={**feature_vector, "total_premium": total_premium},
             target_premium_inr=market.premium_inr(total_premium),
         )
         payload = _decision(

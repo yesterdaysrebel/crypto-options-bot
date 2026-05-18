@@ -14,6 +14,7 @@ from tests.strategy_fixtures import (
     make_market_state,
     make_noisy_then_quiet_candles,
     make_trend_candles,
+    set_quote_open_interest,
     strangle_cfg,
 )
 
@@ -130,3 +131,73 @@ def test_cooldown_blocks_entry() -> None:
     intents, decisions = strat.evaluate(state)
     assert intents == []
     assert any(d["reason"] == "anti_revenge_block" for d in decisions)
+
+
+def test_low_open_interest_rejects_strangle() -> None:
+    now = dt.datetime(2026, 5, 12, 10, 0, 0)
+    spot = 100_000.0
+    chain = make_chain(
+        underlying=Underlying.BTC,
+        expiry=now + dt.timedelta(days=1, hours=8),
+        strikes=_strikes(),
+        spot=spot,
+        open_interest=200.0,
+    )
+    call_sym = next(s for s in chain._quotes if s.startswith("C-"))
+    set_quote_open_interest(chain, call_sym, 8.0)
+    candles_15m = make_noisy_then_quiet_candles(
+        noisy_n=1450,
+        quiet_n=10,
+        price=spot,
+        noisy_amplitude=400,
+        quiet_amplitude=20,
+    )
+    candles_1h = make_noisy_then_quiet_candles(
+        noisy_n=300,
+        quiet_n=24,
+        price=spot,
+        noisy_amplitude=2000,
+        quiet_amplitude=80,
+        bucket_seconds=3600,
+    )
+    candles = {Underlying.BTC: {"15m": candles_15m, "1h": candles_1h}}
+    state = make_market_state(now, chain=chain, candles_by_tf=candles, spots={Underlying.BTC: spot})
+    strat = VolStrangleStrategy(strangle_cfg(desk={"min_open_interest": 50}))
+    intents, decisions = strat.evaluate(state)
+    assert intents == []
+    assert any(d["reason"] == "low_open_interest" for d in decisions)
+
+
+def test_strangle_passes_logs_leg_greeks() -> None:
+    now = dt.datetime(2026, 5, 12, 10, 0, 0)
+    spot = 100_000.0
+    chain = make_chain(
+        underlying=Underlying.BTC,
+        expiry=now + dt.timedelta(days=1, hours=8),
+        strikes=_strikes(),
+        spot=spot,
+        open_interest=200.0,
+    )
+    candles_15m = make_noisy_then_quiet_candles(
+        noisy_n=1450,
+        quiet_n=10,
+        price=spot,
+        noisy_amplitude=400,
+        quiet_amplitude=20,
+    )
+    candles_1h = make_noisy_then_quiet_candles(
+        noisy_n=300,
+        quiet_n=24,
+        price=spot,
+        noisy_amplitude=2000,
+        quiet_amplitude=80,
+        bucket_seconds=3600,
+    )
+    candles = {Underlying.BTC: {"15m": candles_15m, "1h": candles_1h}}
+    state = make_market_state(now, chain=chain, candles_by_tf=candles, spots={Underlying.BTC: spot})
+    strat = VolStrangleStrategy(strangle_cfg(desk={"min_open_interest": 50}))
+    intents, decisions = strat.evaluate(state)
+    assert len(intents) == 1
+    fv = next(d["feature_vector"] for d in decisions if d["passed"])
+    assert "call_iv" in fv
+    assert "put_delta" in fv

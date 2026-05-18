@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import replace
 
 from bot.config.models import (
     DirectionalConfig,
@@ -41,6 +42,7 @@ def make_chain(
     atm_mid: float = 300.0,
     decay_per_pct: float = 25.0,
     base_spread_pct: float = 0.04,
+    open_interest: float | None = None,
 ) -> ChainCache:
     """Synthetic option chain.
 
@@ -84,6 +86,7 @@ def make_chain(
                     vega=5.0,
                     rho=0.5,
                     underlying_mark=spot,
+                    open_interest=open_interest,
                 )
             )
             pid += 1
@@ -212,6 +215,13 @@ def make_noisy_then_quiet_candles(
         low = min(open_, close) - quiet_amplitude / 4
         candles.append(Candle(ts=ts, open=open_, high=high, low=low, close=close, n_ticks=10))
     return candles
+
+
+def set_quote_open_interest(chain: ChainCache, symbol: str, open_interest: float | None) -> None:
+    quote = chain.get_quote(symbol)
+    if quote is None:
+        raise ValueError(f"unknown symbol: {symbol}")
+    chain.upsert_quote(replace(quote, open_interest=open_interest))
 
 
 def make_market_state(

@@ -29,6 +29,7 @@ from bot.config.models import (
     StrategyId,
     Underlying,
 )
+from bot.desk.leg_liquidity import check_multi_leg_liquidity
 from bot.risk.window import utc_to_ist, within_minutes_of_ist_time
 from bot.strategies.base import (
     Action,
@@ -186,6 +187,30 @@ class IronCondorStrategy(Strategy):
                     self.id, underlying, s.instrument.symbol, False, "condor_delta_band_unfillable", {}
                 )
 
+        wing_legs = [
+            ("long_put", long_put),
+            ("short_put", short_put),
+            ("short_call", short_call),
+            ("long_call", long_call),
+        ]
+        liquidity = check_multi_leg_liquidity(
+            wing_legs,
+            min_open_interest=cfg.desk.min_open_interest,
+            greeks_required=cfg.desk.greeks_required,
+        )
+        feature_vector: dict[str, Any] = {"spot": spot}
+        if liquidity.features:
+            feature_vector.update(liquidity.features)
+        if not liquidity.ok:
+            return _decision(
+                self.id,
+                underlying,
+                liquidity.symbol,
+                False,
+                liquidity.reason or "filter_failed",
+                feature_vector,
+            )
+
         credit = (
             (short_call.quote.mid or 0)
             + (short_put.quote.mid or 0)
@@ -242,18 +267,17 @@ class IronCondorStrategy(Strategy):
             ),
         ]
 
-        feature_vector = {
-            "spot": spot,
-            "long_put_strike": long_put.instrument.strike,
-            "short_put_strike": short_put.instrument.strike,
-            "short_call_strike": short_call.instrument.strike,
-            "long_call_strike": long_call.instrument.strike,
-            "credit": credit,
-            "max_width": max_width,
-            "max_loss": max_loss,
-            "short_call_delta": short_call.quote.delta,
-            "short_put_delta": short_put.quote.delta,
-        }
+        feature_vector.update(
+            {
+                "long_put_strike": long_put.instrument.strike,
+                "short_put_strike": short_put.instrument.strike,
+                "short_call_strike": short_call.instrument.strike,
+                "long_call_strike": long_call.instrument.strike,
+                "credit": credit,
+                "max_width": max_width,
+                "max_loss": max_loss,
+            }
+        )
 
         intent = Intent(
             strategy_id=self.id,

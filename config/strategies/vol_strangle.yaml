@@ -32,6 +32,10 @@ strike:
   put_delta_max: 0.30
   put_delta_target: 0.25
 
+desk:
+  min_open_interest: 0
+  greeks_required: true
+
 exits:
   profit_take_pct_of_premium: 0.50
   stop_loss_pct_of_premium: 0.50
