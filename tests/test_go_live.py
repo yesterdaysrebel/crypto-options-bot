@@ -31,12 +31,21 @@ def _write_strategy_yaml(config_dir: Path, strategy_id: str, **overrides: object
     return path
 
 
+def _write_global_yaml(config_dir: Path, **desk_overrides: object) -> None:
+    desk = {"go_live_min_entry_iv_pct": 0.80, "go_live_entry_iv_lookback_trades": 20, **desk_overrides}
+    (config_dir / "global.yaml").write_text(
+        yaml.safe_dump({"nav_inr": 50000, "desk": desk}, sort_keys=False),
+        encoding="utf-8",
+    )
+
+
 async def _seed_dry_trades(
     db: Database,
     strategy_id: str,
     *,
     n_trades: int,
     distinct_days: int,
+    entry_iv: float | None = 0.55,
 ) -> None:
     base = dt.datetime(2026, 5, 1, 16, 0)
     async with db.session() as session:
@@ -52,6 +61,7 @@ async def _seed_dry_trades(
                     mode="dry",
                     lots=1,
                     realised_pnl_inr=100.0 - i,
+                    entry_iv=entry_iv,
                 )
             )
 
@@ -125,6 +135,18 @@ async def test_go_live_rejects_unknown_strategy(db: Database, tmp_path: Path) ->
     report = await gate.evaluate("definitely_not_a_strategy")
     assert not report.passed
     assert any(not c.passed and c.name == "known_strategy" for c in report.checks)
+
+
+@pytest.mark.asyncio
+async def test_go_live_fails_when_entry_iv_coverage_low(db: Database, tmp_path: Path) -> None:
+    _write_strategy_yaml(tmp_path, "directional")
+    _write_global_yaml(tmp_path, go_live_min_entry_iv_pct=0.80, go_live_entry_iv_lookback_trades=10)
+    await _seed_dry_trades(db, "directional", n_trades=25, distinct_days=12, entry_iv=None)
+    gate = GoLiveGate(db, config_dir=tmp_path)
+    report = await gate.evaluate("directional", dry_run=True)
+    assert not report.passed
+    iv_check = next(c for c in report.checks if c.name == "entry_iv_coverage")
+    assert not iv_check.passed
 
 
 @pytest.mark.asyncio

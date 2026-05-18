@@ -309,6 +309,10 @@ class DirectionalStrategy(Strategy):
         if current_mid is None:
             return [Action(kind=ActionType.NO_OP)]
 
+        greek_exit = _desk_greek_exit(self.config.desk, position, leg, market)
+        if greek_exit is not None:
+            return [Action(kind=ActionType.CLOSE, close=CloseAction(reason=greek_exit))]
+
         entry = float(position.entry_premium_inr)
         mid = float(current_mid)
 
@@ -352,6 +356,45 @@ class DirectionalStrategy(Strategy):
         if not out:
             out.append(Action(kind=ActionType.NO_OP))
         return out
+
+
+def _desk_greek_exit(
+    desk: DirectionalDeskConfig,
+    position: PositionState,
+    leg: dict[str, Any],
+    market: MarketState,
+) -> ExitTrigger | None:
+    if desk.max_abs_delta_move is None and desk.max_abs_gamma_shock is None:
+        return None
+    symbol = leg.get("symbol")
+    if not isinstance(symbol, str):
+        return None
+    quote = market.quote_for.get(symbol) or market.chain.get_quote(symbol)
+    if quote is None:
+        return None
+    entry_greeks = (position.notes or {}).get("entry_greeks")
+    if not isinstance(entry_greeks, dict):
+        return None
+    row = entry_greeks.get(symbol)
+    if not isinstance(row, dict):
+        return None
+    if desk.max_abs_delta_move is not None:
+        entry_delta = row.get("delta")
+        if (
+            entry_delta is not None
+            and quote.delta is not None
+            and abs(float(quote.delta) - float(entry_delta)) >= desk.max_abs_delta_move
+        ):
+            return ExitTrigger.DELTA_BREACH
+    if desk.max_abs_gamma_shock is not None:
+        entry_gamma = row.get("gamma")
+        if (
+            entry_gamma is not None
+            and quote.gamma is not None
+            and abs(float(quote.gamma) - float(entry_gamma)) >= desk.max_abs_gamma_shock
+        ):
+            return ExitTrigger.GAMMA_SHOCK
+    return None
 
 
 def _iv_entry_blocked(desk: DirectionalDeskConfig, result: IvPercentileResult | None) -> bool:

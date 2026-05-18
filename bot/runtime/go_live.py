@@ -99,6 +99,7 @@ class GoLiveGate:
         await self._check_circuit_breaker(report)
         await self._check_min_days(report, strategy_id, min_days)
         await self._check_min_trades(report, strategy_id, min_trades)
+        await self._check_entry_iv_coverage(report, strategy_id)
 
         if report.passed and not dry_run:
             payload["enabled_live"] = True
@@ -163,6 +164,49 @@ class GoLiveGate:
             "min_closed_trades",
             n >= min_trades,
             f"{n} closed dry-run trades (>= {min_trades} required)",
+        )
+
+    async def _check_entry_iv_coverage(self, report: GoLiveReport, strategy_id: str) -> None:
+        min_pct = 0.80
+        lookback = 20
+        global_path = self._config_dir / "global.yaml"
+        if global_path.exists():
+            try:
+                global_payload = yaml.safe_load(global_path.read_text(encoding="utf-8")) or {}
+                desk = global_payload.get("desk") or {}
+                min_pct = float(desk.get("go_live_min_entry_iv_pct", min_pct))
+                lookback = int(desk.get("go_live_entry_iv_lookback_trades", lookback))
+            except (TypeError, ValueError, yaml.YAMLError):
+                report.add(
+                    "entry_iv_coverage",
+                    False,
+                    f"could not parse desk go-live settings in {global_path}",
+                )
+                return
+
+        async with self._db.session() as session:
+            stmt = (
+                select(Trade.entry_iv)
+                .where(Trade.strategy_id == strategy_id)
+                .where(Trade.status == TradeStatus.CLOSED.value)
+                .where(Trade.mode == "dry")
+                .where(Trade.exit_ts.isnot(None))
+                .order_by(Trade.exit_ts.desc())
+                .limit(lookback)
+            )
+            rows = list((await session.execute(stmt)).scalars().all())
+
+        if not rows:
+            report.add("entry_iv_coverage", True, "no closed dry trades yet — entry IV coverage waived")
+            return
+
+        with_iv = sum(1 for iv in rows if iv is not None)
+        ratio = with_iv / len(rows)
+        ok = ratio >= min_pct
+        report.add(
+            "entry_iv_coverage",
+            ok,
+            f"{with_iv}/{len(rows)} recent trades have entry_iv ({ratio:.0%}, need >= {min_pct:.0%})",
         )
 
 

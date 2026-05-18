@@ -31,4 +31,8 @@ desk:
   greeks_required: true
   max_abs_net_delta_inr: 15000
   max_abs_net_vega_inr: 8000
+  # max_vega_per_trade_inr: 3000
+  # max_gamma_per_trade_inr: 1500
   iv_history_min_snapshots: 20
+  go_live_min_entry_iv_pct: 0.80
+  go_live_entry_iv_lookback_trades: 20

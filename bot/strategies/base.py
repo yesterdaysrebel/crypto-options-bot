@@ -43,6 +43,8 @@ class ExitTrigger(StrEnum):
     TIME_STOP = "time_stop"
     FORCE_CLOSE_EXPIRY = "force_close_expiry"
     TESTED_SIDE_CUT = "tested_side_cut"
+    DELTA_BREACH = "delta_breach"
+    GAMMA_SHOCK = "gamma_shock"
 
 
 @dataclass(frozen=True)

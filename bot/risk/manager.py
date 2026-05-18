@@ -178,9 +178,23 @@ class RiskManager:
                         notes=desk_notes,
                     )
 
-        return self._size_intent(intent, strategy_cfg)
+        return self._size_intent(
+            intent,
+            strategy_cfg,
+            quote_for=quote_for,
+            chain=chain,
+            usd_inr_rate=usd_inr_rate,
+        )
 
-    def _size_intent(self, intent: Intent, strategy_cfg: StrategyConfig) -> SizingResult:
+    def _size_intent(
+        self,
+        intent: Intent,
+        strategy_cfg: StrategyConfig,
+        *,
+        quote_for: Mapping[str, QuoteSnapshot] | None = None,
+        chain: ChainCache | None = None,
+        usd_inr_rate: float = 1.0,
+    ) -> SizingResult:
         risk_budget_inr = self._nav.nav_now * strategy_cfg.risk_weight * strategy_cfg.risk_per_trade_pct
         sized: int
         notes: dict[str, float | str]
@@ -241,6 +255,36 @@ class RiskManager:
                 )
             risk_inr = sized * per_lot_premium
             notes = {"risk_budget_inr": risk_budget_inr, "per_lot_premium": per_lot_premium}
+
+        desk_cfg = self._cfg.desk
+        if desk_cfg.enabled and quote_for is not None and sized >= 1:
+            from bot.desk.greek_sizing import cap_lots_by_greeks
+
+            capped, gnotes = cap_lots_by_greeks(
+                intent,
+                sized,
+                quote_for,
+                chain,
+                max_vega_inr=desk_cfg.max_vega_per_trade_inr,
+                max_gamma_inr=desk_cfg.max_gamma_per_trade_inr,
+                usd_inr_rate=usd_inr_rate,
+            )
+            notes.update({k: v for k, v in gnotes.items() if isinstance(v, (int, float, str))})
+            if capped < sized:
+                sized = capped
+                if intent.strategy_id == StrategyId.DIRECTIONAL:
+                    risk_inr = sized * float(intent.target_premium_inr or 0)
+                elif intent.strategy_id == StrategyId.IRON_CONDOR:
+                    risk_inr = sized * float(intent.target_max_loss_inr or 0)
+                elif intent.strategy_id == StrategyId.VOL_STRANGLE:
+                    risk_inr = sized * float(intent.target_premium_inr or 0)
+
+        if sized < 1:
+            return SizingResult(
+                decision=RiskDecision.ZERO_LOTS_AFTER_FLOOR,
+                intent=intent,
+                notes=notes,
+            )
 
         return SizingResult(
             decision=RiskDecision.APPROVED,

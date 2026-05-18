@@ -107,7 +107,11 @@ class DeskConfig(BaseModel):
     greeks_required: bool = True
     max_abs_net_delta_inr: Annotated[float, Field(gt=0)] | None = None
     max_abs_net_vega_inr: Annotated[float, Field(gt=0)] | None = None
+    max_vega_per_trade_inr: Annotated[float, Field(gt=0)] | None = None
+    max_gamma_per_trade_inr: Annotated[float, Field(gt=0)] | None = None
     iv_history_min_snapshots: Annotated[int, Field(ge=1)] = 20
+    go_live_min_entry_iv_pct: Annotated[float, Field(gt=0, le=1)] = 0.80
+    go_live_entry_iv_lookback_trades: Annotated[int, Field(ge=1)] = 20
 
 
 class GlobalConfig(BaseModel):
@@ -167,6 +171,8 @@ class DirectionalDeskConfig(BaseModel):
     max_iv_percentile_long: Annotated[float, Field(gt=0, le=1)] | None = None
     min_iv_percentile_long: Annotated[float, Field(gt=0, le=1)] | None = None
     prefer_delta_strike: Annotated[float, Field(gt=0, lt=1)] | None = None
+    max_abs_delta_move: Annotated[float, Field(gt=0, lt=1)] | None = None
+    max_abs_gamma_shock: Annotated[float, Field(gt=0)] | None = None
 
 
 class StrategyLegDeskConfig(BaseModel):
