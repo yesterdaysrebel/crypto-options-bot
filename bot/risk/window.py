@@ -12,6 +12,18 @@ def utc_to_ist(now: dt.datetime) -> dt.datetime:
     return now.replace(tzinfo=dt.UTC).astimezone(IST)
 
 
+def within_minutes_of_ist_time(now_utc: dt.datetime, target_ist: dt.time, *, minutes: int) -> bool:
+    """True when `now_utc` falls within +/- `minutes` of `target_ist` on the IST clock."""
+    local_time = utc_to_ist(now_utc).time().replace(microsecond=0)
+    return _within_minutes_of_clock_time(local_time, target_ist, minutes=minutes)
+
+
+def _within_minutes_of_clock_time(a: dt.time, b: dt.time, *, minutes: int) -> bool:
+    anchor = dt.date(2000, 1, 1)
+    delta = abs((dt.datetime.combine(anchor, a) - dt.datetime.combine(anchor, b)).total_seconds())
+    return delta <= minutes * 60
+
+
 class TradingWindow:
     """Allow trading between `start` and `end` IST (inclusive of `start`, exclusive of `end`)."""
 

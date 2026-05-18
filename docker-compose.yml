@@ -8,6 +8,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      TZ: Asia/Kolkata
     volumes:
       - ./data:/app/data
       - ./reports:/app/reports

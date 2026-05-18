@@ -2,22 +2,36 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import sys
 
 from loguru import logger
 
 from bot.config.settings import Settings
+from bot.risk.window import IST
+
+_LOG_FORMAT_STDERR = (
+    "<green>{time:YYYY-MM-DD HH:mm:ss} IST</green> | <level>{level: <8}</level> | "
+    "<cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>"
+)
+_LOG_FORMAT_FILE = "{time:YYYY-MM-DD HH:mm:ss} IST | {level: <8} | {name}:{function} - {message}"
+
+
+def _ist_log_record_patcher(record: dict) -> None:
+    """Render all log timestamps on the IST wall clock (independent of host TZ)."""
+    record["time"] = dt.datetime.now(IST)
 
 
 def configure_logging(settings: Settings) -> None:
     """Idempotent enough for tests: removes default sink, adds stderr + `logs_dir/bot.log`."""
     logger.remove()
+    logger.configure(patcher=_ist_log_record_patcher)
     settings.logs_dir.mkdir(parents=True, exist_ok=True)
     log_path = settings.logs_dir / "bot.log"
     logger.add(
         sys.stderr,
         level=settings.log_level.value,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
+        format=_LOG_FORMAT_STDERR,
     )
     logger.add(
         log_path,
@@ -25,9 +39,9 @@ def configure_logging(settings: Settings) -> None:
         rotation="50 MB",
         retention="14 days",
         compression="gz",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function} - {message}",
+        format=_LOG_FORMAT_FILE,
     )
-    logger.info("logging to stderr and {}", log_path)
+    logger.info("logging to stderr and {} (timestamps IST)", log_path)
 
 
 __all__ = ["configure_logging"]

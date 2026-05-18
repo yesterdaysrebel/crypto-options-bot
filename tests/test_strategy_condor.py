@@ -11,8 +11,9 @@ from bot.strategies.iron_condor import IronCondorStrategy
 from tests.strategy_fixtures import condor_cfg, make_chain, make_market_state
 
 
-def _friday_open() -> dt.datetime:
-    return dt.datetime(2026, 5, 15, 9, 30, 0)
+def _friday_open_ist_as_utc() -> dt.datetime:
+    """Friday 09:30 IST == 04:00 UTC (naive UTC convention used by the engine)."""
+    return dt.datetime(2026, 5, 15, 4, 0, 0)
 
 
 def _strikes() -> list[int]:
@@ -20,7 +21,7 @@ def _strikes() -> list[int]:
 
 
 def test_friday_open_with_healthy_chain_emits_4leg_intent() -> None:
-    now = _friday_open()
+    now = _friday_open_ist_as_utc()
     spot = 100_000.0
     chain = make_chain(
         underlying=Underlying.BTC,
@@ -55,7 +56,8 @@ def test_friday_open_with_healthy_chain_emits_4leg_intent() -> None:
 
 
 def test_non_friday_does_not_fire() -> None:
-    now = dt.datetime(2026, 5, 14, 9, 30, 0)  # Thursday
+    # Thursday 09:30 IST == Thursday 04:00 UTC
+    now = dt.datetime(2026, 5, 14, 4, 0, 0)
     spot = 100_000.0
     chain = make_chain(
         underlying=Underlying.BTC,
@@ -70,8 +72,25 @@ def test_non_friday_does_not_fire() -> None:
     assert all(d["reason"] == "filter_failed" for d in decisions)
 
 
+def test_utc_clock_time_matching_open_ist_does_not_fire() -> None:
+    """Regression: comparing UTC clock to IST open_time used to open at 15:00 IST."""
+    now = dt.datetime(2026, 5, 15, 9, 30, 0)  # 15:00 IST Friday
+    spot = 100_000.0
+    chain = make_chain(
+        underlying=Underlying.BTC,
+        expiry=now + dt.timedelta(days=7),
+        strikes=_strikes(),
+        spot=spot,
+    )
+    state = make_market_state(now, chain=chain, candles_by_tf={}, spots={Underlying.BTC: spot})
+    strat = IronCondorStrategy(condor_cfg())
+    intents, _ = strat.evaluate(state)
+    assert intents == []
+
+
 def test_outside_open_window_does_not_fire() -> None:
-    now = _friday_open().replace(hour=15)  # 3 PM Friday
+    # Friday 15:00 IST == 09:30 UTC (outside 09:30 +/- 30m IST window)
+    now = dt.datetime(2026, 5, 15, 9, 30, 0)
     spot = 100_000.0
     chain = make_chain(
         underlying=Underlying.BTC,
@@ -86,7 +105,7 @@ def test_outside_open_window_does_not_fire() -> None:
 
 
 def test_credit_too_thin_rejected() -> None:
-    now = _friday_open()
+    now = _friday_open_ist_as_utc()
     spot = 100_000.0
     chain = make_chain(
         underlying=Underlying.BTC,

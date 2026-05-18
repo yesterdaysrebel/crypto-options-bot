@@ -29,6 +29,7 @@ from bot.config.models import (
     StrategyId,
     Underlying,
 )
+from bot.risk.window import utc_to_ist, within_minutes_of_ist_time
 from bot.strategies.base import (
     Action,
     ActionType,
@@ -53,18 +54,33 @@ class IronCondorStrategy(Strategy):
         decisions: list[dict[str, Any]] = []
         intents: list[Intent] = []
 
-        if market.now.weekday() != 4:
+        now_ist = utc_to_ist(market.now)
+        if now_ist.weekday() != 4:
             decisions.append(
-                _decision(self.id, None, None, False, "filter_failed", {"weekday": market.now.weekday()})
+                _decision(
+                    self.id,
+                    None,
+                    None,
+                    False,
+                    "filter_failed",
+                    {"weekday_ist": now_ist.weekday()},
+                )
             )
             return intents, decisions
 
-        open_at = self.config.entry.open_time
-        now_time = market.now.time().replace(microsecond=0)
-        if not _within_minutes(now_time, open_at, minutes=30):
+        open_at_ist = self.config.entry.open_time
+        if not within_minutes_of_ist_time(market.now, open_at_ist, minutes=30):
             decisions.append(
                 _decision(
-                    self.id, None, None, False, "filter_failed", {"now": str(now_time), "want": str(open_at)}
+                    self.id,
+                    None,
+                    None,
+                    False,
+                    "filter_failed",
+                    {
+                        "now_ist": now_ist.strftime("%H:%M:%S"),
+                        "open_time_ist": open_at_ist.strftime("%H:%M"),
+                    },
                 )
             )
             return intents, decisions
@@ -311,14 +327,6 @@ def _decision(
         "reason": reason,
         "feature_vector": feature_vector,
     }
-
-
-def _within_minutes(a, b, *, minutes: int) -> bool:
-    import datetime as dt
-
-    today = dt.date(2000, 1, 1)
-    delta = abs((dt.datetime.combine(today, a) - dt.datetime.combine(today, b)).total_seconds())
-    return delta <= minutes * 60
 
 
 __all__ = ["IronCondorStrategy"]
