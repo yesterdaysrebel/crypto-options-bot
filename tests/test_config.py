@@ -77,8 +77,7 @@ def test_unknown_strategy_id_raises(tmp_path: Path) -> None:
 def test_desk_config_loads_when_enabled(tmp_path: Path) -> None:
     _scaffold_configs(tmp_path)
     (tmp_path / "global.yaml").write_text(
-        (tmp_path / "global.yaml").read_text()
-        + "\ndesk:\n  enabled: true\n  min_open_interest: 100\n"
+        (tmp_path / "global.yaml").read_text() + "\ndesk:\n  enabled: true\n  min_open_interest: 100\n"
     )
     g = load_global_config(tmp_path)
     assert g.desk.enabled is True
