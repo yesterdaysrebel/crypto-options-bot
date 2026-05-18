@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import datetime as dt
 import sys
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
 from bot.config.settings import Settings
 from bot.risk.window import IST
+
+if TYPE_CHECKING:
+    from loguru import Record
 
 _LOG_FORMAT_STDERR = (
     "<green>{time:YYYY-MM-DD HH:mm:ss} IST</green> | <level>{level: <8}</level> | "
@@ -17,7 +21,7 @@ _LOG_FORMAT_STDERR = (
 _LOG_FORMAT_FILE = "{time:YYYY-MM-DD HH:mm:ss} IST | {level: <8} | {name}:{function} - {message}"
 
 
-def _ist_log_record_patcher(record: dict) -> None:
+def _ist_log_record_patcher(record: Record) -> None:
     """Render all log timestamps on the IST wall clock (independent of host TZ)."""
     record["time"] = dt.datetime.now(IST)
 
