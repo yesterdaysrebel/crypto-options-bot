@@ -27,8 +27,8 @@ from bot.config.models import (
     Underlying,
     VolStrangleConfig,
 )
-from bot.desk.leg_liquidity import check_multi_leg_liquidity
 from bot.data.candles import atr, bollinger_width, percentile_rank
+from bot.desk.leg_liquidity import check_multi_leg_liquidity
 from bot.strategies.base import (
     Action,
     ActionType,

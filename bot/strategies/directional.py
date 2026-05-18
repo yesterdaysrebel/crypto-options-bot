@@ -30,8 +30,8 @@ from bot.config.models import (
     DirectionalConfig,
     DirectionalDeskConfig,
     ExpiryBucket,
-    StrikeMode,
     StrategyId,
+    StrikeMode,
     Underlying,
 )
 from bot.data.candles import atr, ema
