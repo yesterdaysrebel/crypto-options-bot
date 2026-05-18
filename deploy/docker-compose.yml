@@ -6,6 +6,8 @@ services:
     image: ${BOT_IMAGE:-crypto-options-bot:local}
     container_name: crypto-options-bot
     restart: unless-stopped
+    environment:
+      PROM_HTTP_HOST: "0.0.0.0"
     env_file:
       - ${BOT_ENV_FILE:-../.env}
     volumes:

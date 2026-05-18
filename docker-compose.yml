@@ -10,6 +10,7 @@ services:
       - .env
     environment:
       TZ: Asia/Kolkata
+      PROM_HTTP_HOST: "0.0.0.0"
     volumes:
       - ./data:/app/data
       - ./reports:/app/reports

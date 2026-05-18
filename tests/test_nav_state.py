@@ -5,12 +5,10 @@ from __future__ import annotations
 import datetime as dt
 
 import pytest
-
 from bot.risk.caps import NavTracker
-from bot.storage.db import Database, get_database
-from bot.risk.window import IST, utc_to_ist
-from bot.risk.window import india_options_session_close_utc
+from bot.risk.window import IST, india_options_session_close_utc, utc_to_ist
 from bot.runtime.nav_state import load_nav_tracker, maybe_roll_ist_trading_day
+from bot.storage.db import Database, get_database
 from bot.storage.models import NavHistory, Trade, TradeStatus
 
 

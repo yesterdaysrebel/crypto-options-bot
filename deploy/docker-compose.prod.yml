@@ -16,6 +16,8 @@ services:
     environment:
       TZ: Asia/Kolkata
       MODE: ${MODE:-dry}
+      # Listen on all container interfaces so host port publish (127.0.0.1:9091) reaches /health.
+      PROM_HTTP_HOST: "0.0.0.0"
     volumes:
       - /opt/crypto-options-bot/data:/app/data
       - /opt/crypto-options-bot/reports:/app/reports

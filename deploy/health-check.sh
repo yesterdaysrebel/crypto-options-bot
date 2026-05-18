@@ -52,8 +52,14 @@ while true; do
     sleep 3
 done
 
-if ! curl -fsS "${HEALTH_URL}" >/dev/null 2>&1; then
-    echo "[health-check] FAILED: ${HEALTH_URL} did not return 200"
+_health_ok() {
+    curl -fsS "${HEALTH_URL}" >/dev/null 2>&1 && return 0
+    # Fallback: in-container listener may be 127.0.0.1 only (host port publish cannot reach it).
+    docker exec "${CONTAINER}" curl -fsS "http://127.0.0.1:9091/health" >/dev/null 2>&1
+}
+
+if ! _health_ok; then
+    echo "[health-check] FAILED: ${HEALTH_URL} did not return 200 (host and docker exec)"
     docker logs --tail 50 "${CONTAINER}" || true
     exit 1
 fi

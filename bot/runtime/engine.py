@@ -15,7 +15,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from bot.analytics.daily import DailyAggregator
-from bot.exits import ExitEngine, ExitKind, PositionRuntime
 from bot.analytics.decision_log import DecisionLogWriter
 from bot.analytics.journal import TradeJournal
 from bot.config.loader import load_all
@@ -36,16 +35,17 @@ from bot.execution.dry import DryExecutor
 from bot.execution.live import LiveExecutor
 from bot.execution.premium import per_lot_premium_from_net, realised_pnl_inr
 from bot.execution.router import EntryRequest, ExecutionRouter, ExitRequest, LegSide
-from bot.runtime.nav_state import (
-    load_nav_tracker,
-    maybe_roll_ist_trading_day,
-    sync_circuit_breaker_from_risk,
-)
+from bot.exits import ExitEngine, ExitKind, PositionRuntime
 from bot.observability.logging_setup import configure_logging
 from bot.observability.metrics import MetricsRegistry, TextfileCollector
 from bot.observability.server import MetricsServer
 from bot.risk.caps import NavTracker
 from bot.risk.manager import RiskDecision, RiskManager, SizingResult, TradeAccountingSnapshot
+from bot.runtime.nav_state import (
+    load_nav_tracker,
+    maybe_roll_ist_trading_day,
+    sync_circuit_breaker_from_risk,
+)
 from bot.runtime.trade_tracking import (
     indicator_snapshot_for_trade,
     indicator_snapshot_for_underlying,
@@ -57,7 +57,6 @@ from bot.storage.models import (
     DecisionReason,
     Leg,
     LegStatus,
-    NavHistory,
     Order,
     OrderState,
     OrderType,
@@ -75,7 +74,7 @@ from bot.strategies import (
     StrategyRegistry,
     VolStrangleStrategy,
 )
-from bot.strategies.base import ActionType, ExitTrigger, Intent, LegIntent, TrailAction
+from bot.strategies.base import ExitTrigger, Intent, LegIntent, TrailAction
 
 WALLET_POLL_INTERVAL_S = 30.0
 OPEN_JOURNAL_REFRESH_S = 30.0
@@ -784,7 +783,7 @@ async def run_trading_engine() -> None:
                 logger.exception("daily aggregator failed")
 
     async def main_loop() -> None:
-        nonlocal last_textfile
+        nonlocal last_ist_trading_date, last_textfile
         while not stop.is_set():
             try:
                 await asyncio.wait_for(stop.wait(), timeout=tick_interval)
