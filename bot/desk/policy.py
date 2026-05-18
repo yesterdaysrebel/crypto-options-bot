@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from bot.config.models import DeskConfig, Underlying
 from bot.data.chain_cache import ChainCache, QuoteSnapshot
 from bot.desk.portfolio_greeks import PortfolioGreeks
-from bot.strategies.base import Intent
+
+if TYPE_CHECKING:
+    from bot.strategies.base import Intent
 
 
 class DeskPolicy:
@@ -70,7 +72,9 @@ class DeskPolicy:
         quote_for: Mapping[str, QuoteSnapshot],
         chain: ChainCache | None,
     ) -> tuple[str | None, dict[str, Any]]:
-        if not isinstance(intent, Intent):
+        from bot.strategies.base import Intent as IntentCls
+
+        if not isinstance(intent, IntentCls):
             raise TypeError(f"intent must be Intent, got {type(intent).__name__}")
         if not isinstance(quote_for, Mapping):
             raise TypeError(f"quote_for must be a mapping, got {type(quote_for).__name__}")

@@ -14,15 +14,17 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from bot.config.models import GlobalConfig, StrategyConfig, StrategyId, Underlying
 from bot.data.chain_cache import ChainCache, QuoteSnapshot
-from bot.desk.policy import DeskPolicy
 from bot.desk.portfolio_greeks import PortfolioGreeks
 from bot.risk.caps import CapStatus, DrawdownCaps, LossCapResult, NavTracker
 from bot.risk.window import TradingWindow
-from bot.strategies.base import Intent
+
+if TYPE_CHECKING:
+    from bot.desk.policy import DeskPolicy
+    from bot.strategies.base import Intent
 
 
 class RiskDecision(StrEnum):
@@ -86,7 +88,11 @@ class RiskManager:
             weekly_loss_pct=global_config.risk_caps.weekly_loss_pct,
             lifetime_dd_pct=global_config.risk_caps.lifetime_dd_pct,
         )
-        self._desk = DeskPolicy(global_config.desk) if global_config.desk.enabled else None
+        self._desk: DeskPolicy | None = None
+        if global_config.desk.enabled:
+            from bot.desk.policy import DeskPolicy as DeskPolicyCls
+
+            self._desk = DeskPolicyCls(global_config.desk)
 
     @property
     def nav_tracker(self) -> NavTracker:
