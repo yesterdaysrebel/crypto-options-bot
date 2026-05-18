@@ -232,9 +232,9 @@ def test_directional_trail_breakeven_requires_full_r_on_multi_lot() -> None:
         leg_states=[{"symbol": symbol, "side": "buy", "option_type": "call", "current_mid": mid}],
     )
     actions = strat.manage(position, market)
-    assert not any(
-        a.kind == ActionType.TRAIL_STOP for a in actions
-    ), "0.5R total peak should not arm breakeven trail at 1R config"
+    assert not any(a.kind == ActionType.TRAIL_STOP for a in actions), (
+        "0.5R total peak should not arm breakeven trail at 1R config"
+    )
 
 
 def test_directional_trail_breach_closes() -> None:
@@ -274,9 +274,7 @@ def test_directional_trail_breach_closes() -> None:
     )
     actions = strat.manage(position, market)
     assert any(
-        a.kind == ActionType.CLOSE
-        and a.close is not None
-        and a.close.reason == ExitTrigger.TRAIL_BREAKEVEN
+        a.kind == ActionType.CLOSE and a.close is not None and a.close.reason == ExitTrigger.TRAIL_BREAKEVEN
         for a in actions
     )
 

@@ -242,9 +242,7 @@ def test_put_trail_emits_when_stop_tightens() -> None:
     engine = ExitEngine(StrategyRegistry([strat]), trail_update_throttle_seconds=0.0)
     sym = "P-BTC-99000-130524"
     state = _make_market_directional(with_quote_mid=210.0)
-    state.quote_for[sym] = QuoteSnapshot(
-        symbol=sym, bid=209.0, ask=211.0, mark_price=210.0
-    )
+    state.quote_for[sym] = QuoteSnapshot(symbol=sym, bid=209.0, ask=211.0, mark_price=210.0)
     pos = PositionState(
         trade_id=5,
         strategy_id=StrategyId.DIRECTIONAL,

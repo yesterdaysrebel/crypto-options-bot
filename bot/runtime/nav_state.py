@@ -70,7 +70,9 @@ async def load_nav_tracker(db: Database, *, base_nav_inr: float) -> NavTracker:
     )
 
 
-def maybe_roll_ist_trading_day(nav: NavTracker, now_utc: dt.datetime, last_ist_date: dt.date | None) -> dt.date:
+def maybe_roll_ist_trading_day(
+    nav: NavTracker, now_utc: dt.datetime, last_ist_date: dt.date | None
+) -> dt.date:
     """Advance daily/weekly open NAV anchors at the IST calendar boundary."""
     today = utc_to_ist(now_utc).date()
     if last_ist_date is not None and today > last_ist_date:

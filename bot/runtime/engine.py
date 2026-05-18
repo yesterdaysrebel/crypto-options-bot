@@ -616,9 +616,7 @@ async def run_trading_engine() -> None:
     dispatcher = StrategyDispatcher(registry)
     exit_engine = ExitEngine(
         registry,
-        trail_update_throttle_seconds=float(
-            app_config.global_config.execution.trail_update_throttle_seconds
-        ),
+        trail_update_throttle_seconds=float(app_config.global_config.execution.trail_update_throttle_seconds),
     )
 
     rest = DeltaRestClient(settings)
