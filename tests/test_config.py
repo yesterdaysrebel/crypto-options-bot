@@ -24,7 +24,7 @@ REPO_CONFIG = Path(__file__).resolve().parent.parent / "config"
 
 def test_repo_global_yaml_loads() -> None:
     g = load_global_config(REPO_CONFIG)
-    assert g.nav_inr == 50000.0
+    assert g.nav_inr == 100000.0
     assert g.usd_inr_rate == 85.0
     assert g.risk_caps.daily_loss_pct == 0.03
     assert g.risk_caps.weekly_loss_pct == 0.06

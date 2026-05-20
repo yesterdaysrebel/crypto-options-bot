@@ -2,7 +2,7 @@ id: directional
 enabled: true
 enabled_live: false
 risk_weight: 0.60
-risk_per_trade_pct: 0.01
+risk_per_trade_pct: 0.015
 max_lots_cap: 10
 underlyings: [BTC, ETH]
 

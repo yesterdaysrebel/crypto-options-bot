@@ -89,6 +89,10 @@ GO_LIVE_DIRECTIONAL=false
 GO_LIVE_IRON_CONDOR=false
 GO_LIVE_VOL_STRANGLE=false
 
+# Modeled capital for per-trade sizing (overrides config/global.yaml nav_inr).
+BOT_NAV_INR=100000
+BOT_MODE=dry
+
 # Logging / persistence
 LOG_LEVEL=INFO
 DB_URL=sqlite:////app/data/bot.sqlite
