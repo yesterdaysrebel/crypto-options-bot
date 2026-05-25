@@ -52,11 +52,11 @@ def _mock_rest(handler):
 
 async def _seed_open_trade_with_open_order(db: Database, *, coid: str) -> tuple[int, int]:
     async with db.session() as session:
-        trade = Trade(strategy_id="iron_condor", underlying="BTC", lots=1, status=TradeStatus.OPEN.value)
+        trade = Trade(strategy_id="credit_vertical", underlying="BTC", lots=1, status=TradeStatus.OPEN.value)
         session.add(trade)
         await session.flush()
         order = Order(
-            strategy_id="iron_condor",
+            strategy_id="credit_vertical",
             trade_id=trade.id,
             leg_idx=0,
             client_order_id=coid,
@@ -73,7 +73,7 @@ async def _seed_open_trade_with_open_order(db: Database, *, coid: str) -> tuple[
 
 @pytest.mark.asyncio
 async def test_reconcile_clean_when_db_and_exchange_agree(db: Database) -> None:
-    await _seed_open_trade_with_open_order(db, coid="iron_condor-1-0-entry-abc")
+    await _seed_open_trade_with_open_order(db, coid="credit_vertical-1-0-entry-abc")
 
     def handler(req: httpx.Request) -> httpx.Response:
         if req.url.path == "/v2/orders":
@@ -84,7 +84,7 @@ async def test_reconcile_clean_when_db_and_exchange_agree(db: Database) -> None:
                     "result": [
                         {
                             "id": 99999,
-                            "client_order_id": "iron_condor-1-0-entry-abc",
+                            "client_order_id": "credit_vertical-1-0-entry-abc",
                             "state": "open",
                             "symbol": "C-BTC-100000-150526",
                         }
@@ -106,7 +106,7 @@ async def test_reconcile_clean_when_db_and_exchange_agree(db: Database) -> None:
 
 @pytest.mark.asyncio
 async def test_reconcile_marks_disappeared_db_open_order_as_canceled(db: Database) -> None:
-    _, order_id = await _seed_open_trade_with_open_order(db, coid="iron_condor-2-0-entry-xyz")
+    _, order_id = await _seed_open_trade_with_open_order(db, coid="credit_vertical-2-0-entry-xyz")
 
     def handler(req: httpx.Request) -> httpx.Response:
         if req.url.path == "/v2/orders" and req.method == "GET":
@@ -133,7 +133,7 @@ async def test_reconcile_marks_disappeared_db_open_order_as_canceled(db: Databas
 
 @pytest.mark.asyncio
 async def test_reconcile_promotes_filled_state_when_exchange_reports_filled(db: Database) -> None:
-    _, order_id = await _seed_open_trade_with_open_order(db, coid="iron_condor-3-0-entry-fil")
+    _, order_id = await _seed_open_trade_with_open_order(db, coid="credit_vertical-3-0-entry-fil")
 
     def handler(req: httpx.Request) -> httpx.Response:
         if req.url.path == "/v2/orders" and req.method == "GET":
@@ -172,7 +172,7 @@ async def test_reconcile_promotes_filled_state_when_exchange_reports_filled(db: 
 
 @pytest.mark.asyncio
 async def test_reconcile_refuses_to_start_on_foreign_open_order(db: Database) -> None:
-    await _seed_open_trade_with_open_order(db, coid="iron_condor-4-0-entry-known")
+    await _seed_open_trade_with_open_order(db, coid="credit_vertical-4-0-entry-known")
 
     def handler(req: httpx.Request) -> httpx.Response:
         if req.url.path == "/v2/orders" and req.method == "GET":
@@ -198,7 +198,7 @@ async def test_reconcile_refuses_to_start_on_foreign_open_order(db: Database) ->
                     "result": [
                         {
                             "id": 1,
-                            "client_order_id": "iron_condor-4-0-entry-known",
+                            "client_order_id": "credit_vertical-4-0-entry-known",
                             "state": "open",
                             "symbol": "C-BTC-100000-150526",
                         },

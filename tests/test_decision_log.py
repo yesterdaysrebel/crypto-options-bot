@@ -31,7 +31,7 @@ async def test_write_persists_strategy_decisions(db: Database) -> None:
                 "feature_vector": {"ema_fast": 100.0, "ema_slow": 101.0},
             },
             {
-                "strategy_id": "iron_condor",
+                "strategy_id": "credit_vertical",
                 "kind": "evaluate",
                 "underlying": "BTC",
                 "passed": True,
@@ -43,7 +43,7 @@ async def test_write_persists_strategy_decisions(db: Database) -> None:
     assert n == 2
     async with db.session() as session:
         rows = (await session.execute(select(Decision).order_by(Decision.id))).scalars().all()
-    assert {r.strategy_id for r in rows} == {"directional", "iron_condor"}
+    assert {r.strategy_id for r in rows} == {"directional", "credit_vertical"}
     assert any(r.passed for r in rows)
     assert any(not r.passed for r in rows)
     fv = next(r.feature_vector for r in rows if r.strategy_id == "directional")
@@ -77,7 +77,7 @@ async def test_writer_mirrors_to_jsonl(db: Database, tmp_path: Path) -> None:
     await writer.write(
         [
             {
-                "strategy_id": "vol_strangle",
+                "strategy_id": "long_straddle",
                 "kind": "evaluate",
                 "passed": True,
                 "reason": "passed",
@@ -88,7 +88,7 @@ async def test_writer_mirrors_to_jsonl(db: Database, tmp_path: Path) -> None:
     text = mirror.read_text(encoding="utf-8").strip().splitlines()
     assert len(text) == 1
     parsed = json.loads(text[0])
-    assert parsed["strategy_id"] == "vol_strangle"
+    assert parsed["strategy_id"] == "long_straddle"
     assert parsed["feature_vector"]["atr_pct"] == 0.85
 
 

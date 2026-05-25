@@ -62,10 +62,14 @@ def test_client_order_id_is_stable_for_same_salt() -> None:
 
 
 def test_client_order_id_changes_with_purpose_and_leg() -> None:
-    a = generate_client_order_id(strategy_id="iron_condor", trade_id=1, leg_idx=0, purpose="entry", salt="s")
-    b = generate_client_order_id(strategy_id="iron_condor", trade_id=1, leg_idx=1, purpose="entry", salt="s")
+    a = generate_client_order_id(
+        strategy_id="credit_vertical", trade_id=1, leg_idx=0, purpose="entry", salt="s"
+    )
+    b = generate_client_order_id(
+        strategy_id="credit_vertical", trade_id=1, leg_idx=1, purpose="entry", salt="s"
+    )
     c = generate_client_order_id(
-        strategy_id="iron_condor", trade_id=1, leg_idx=0, purpose="exit_target", salt="s"
+        strategy_id="credit_vertical", trade_id=1, leg_idx=0, purpose="exit_target", salt="s"
     )
     assert a != b != c != a
 
@@ -94,33 +98,29 @@ async def test_dry_submit_entry_directional_fills_one_leg() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dry_submit_entry_iron_condor_four_legs_atomic() -> None:
+async def test_dry_submit_entry_credit_vertical_two_legs_atomic() -> None:
     legs = [
         ("P-BTC-97000-150526", 18.0, 22.0),
         ("P-BTC-98000-150526", 48.0, 52.0),
-        ("C-BTC-102000-150526", 48.0, 52.0),
-        ("C-BTC-103000-150526", 18.0, 22.0),
     ]
     cache = _seed_chain(legs)
     exec_ = DryExecutor(cache, seed=7)
     leg_intents = [
         _leg("P-BTC-97000-150526", "buy", 97000.0, "put"),
         _leg("P-BTC-98000-150526", "sell", 98000.0, "put"),
-        _leg("C-BTC-102000-150526", "sell", 102000.0, "call"),
-        _leg("C-BTC-103000-150526", "buy", 103000.0, "call"),
     ]
     res = await exec_.submit_entry(
         EntryRequest(
-            strategy_id=StrategyId.IRON_CONDOR,
+            strategy_id=StrategyId.CREDIT_VERTICAL,
             trade_id=42,
             underlying=Underlying.BTC,
             legs=leg_intents,
             lots=1,
-            intent_rationale="condor",
+            intent_rationale="credit_vertical",
         )
     )
     assert res.success
-    assert len(res.fills) == 4
+    assert len(res.fills) == 2
     assert all(f.qty_filled == 1 for f in res.fills)
     # Entry credit (sell-buy) should be positive: shorts ~50 - longs ~20 = ~60 (per lot side).
     assert (

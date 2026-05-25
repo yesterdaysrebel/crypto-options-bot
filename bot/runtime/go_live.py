@@ -7,8 +7,8 @@ refuses to flip the flag until enough evidence has accumulated.
 
 Checks per strategy (CHECK_THRESHOLDS):
   directional:   min_days=10, min_closed_trades=20
-  iron_condor:   min_days=28, min_closed_trades=8
-  vol_strangle:  min_days=28, min_closed_trades=4
+  credit_vertical: min_days=14, min_closed_trades=12
+  long_straddle:   min_days=14, min_closed_trades=6
 
 Additional checks (always run):
   * SQLite integrity_check: PRAGMA integrity_check returns "ok"
@@ -34,8 +34,8 @@ from bot.storage.models import NavHistory, Trade, TradeStatus
 
 CHECK_THRESHOLDS: dict[str, tuple[int, int]] = {
     "directional": (10, 20),
-    "iron_condor": (28, 8),
-    "vol_strangle": (28, 4),
+    "credit_vertical": (14, 12),
+    "long_straddle": (14, 6),
 }
 
 

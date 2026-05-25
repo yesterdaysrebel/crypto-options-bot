@@ -11,8 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 class StrategyId(StrEnum):
     DIRECTIONAL = "directional"
-    IRON_CONDOR = "iron_condor"
-    VOL_STRANGLE = "vol_strangle"
+    CREDIT_VERTICAL = "credit_vertical"
+    LONG_STRADDLE = "long_straddle"
 
 
 class Underlying(StrEnum):
@@ -135,6 +135,7 @@ class BaseStrategyConfig(BaseModel):
     risk_weight: Annotated[float, Field(gt=0, le=1.0)]
     risk_per_trade_pct: Annotated[float, Field(gt=0, lt=1.0)]
     max_lots_cap: Annotated[int, Field(ge=1)]
+    trade_premium_cap_usd: Annotated[float, Field(gt=0)] | None = None
     underlyings: list[Underlying] = Field(default_factory=lambda: [Underlying.BTC, Underlying.ETH])
 
 
@@ -203,101 +204,80 @@ class DirectionalConfig(BaseStrategyConfig):
     exits: DirectionalExits = DirectionalExits()
 
 
-class CondorEntry(BaseModel):
+class CreditSpreadWings(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    weekday: Literal["friday"] = "friday"
-    open_time_ist: str = "09:30"
-    monthly_cooldown_on_max_loss: bool = True
-
-    @field_validator("open_time_ist")
-    @classmethod
-    def _hhmm(cls, v: str) -> str:
-        _ist_time(v)
-        return v
-
-    @property
-    def open_time(self) -> dt.time:
-        return _ist_time(self.open_time_ist)
-
-
-class CondorWings(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    short_delta_min: Annotated[float, Field(gt=0, lt=1)] = 0.15
-    short_delta_max: Annotated[float, Field(gt=0, lt=1)] = 0.25
-    short_delta_target: Annotated[float, Field(gt=0, lt=1)] = 0.20
+    short_delta_min: Annotated[float, Field(gt=0, lt=1)] = 0.18
+    short_delta_max: Annotated[float, Field(gt=0, lt=1)] = 0.28
+    short_delta_target: Annotated[float, Field(gt=0, lt=1)] = 0.22
     long_delta_min: Annotated[float, Field(gt=0, lt=1)] = 0.05
-    long_delta_max: Annotated[float, Field(gt=0, lt=1)] = 0.10
-    long_delta_target: Annotated[float, Field(gt=0, lt=1)] = 0.075
+    long_delta_max: Annotated[float, Field(gt=0, lt=1)] = 0.12
+    long_delta_target: Annotated[float, Field(gt=0, lt=1)] = 0.08
 
 
-class CondorCredit(BaseModel):
+class CreditSpreadCredit(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    min_credit_pct_of_width: Annotated[float, Field(gt=0, lt=1)] = 0.25
+    min_credit_pct_of_width: Annotated[float, Field(gt=0, lt=1)] = 0.20
 
 
-class CondorExits(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    profit_take_pct_of_credit: Annotated[float, Field(gt=0, lt=1)] = 0.50
-    stop_loss_x_credit: Annotated[float, Field(gt=0)] = 2.0
-    force_close_days_before_expiry: Annotated[int, Field(ge=0, le=7)] = 2
-    tested_side_cut: bool = True
-
-
-class IronCondorConfig(BaseStrategyConfig):
-    id: Literal[StrategyId.IRON_CONDOR] = StrategyId.IRON_CONDOR
-    entry: CondorEntry = CondorEntry()
-    wings: CondorWings = CondorWings()
-    credit: CondorCredit = CondorCredit()
-    desk: StrategyLegDeskConfig = StrategyLegDeskConfig()
-    exits: CondorExits = CondorExits()
-
-
-class VolStrangleSetup(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    timeframe_short: Timeframe = Timeframe.M15
-    timeframe_long: Timeframe = Timeframe.H1
-    atr_period: int = 14
-    atr_percentile_max: Annotated[float, Field(gt=0, le=1)] = 0.30
-    atr_percentile_lookback: int = 100
-    bbwidth_period: int = 20
-    bbwidth_std: float = 2.0
-    bbwidth_lookback_days: int = 180
-    range_compression_bars: int = 8
-    range_compression_ratio: Annotated[float, Field(gt=0, lt=1)] = 0.5
-    range_compression_lookback_days: int = 14
-    anti_revenge_hours: Annotated[int, Field(ge=0)] = 24
-
-
-class VolStrangleExpiry(BaseModel):
+class CreditVerticalExpiry(BaseModel):
     model_config = ConfigDict(extra="forbid")
     prefer: ExpiryBucket = ExpiryBucket.D2
     fallback: ExpiryBucket = ExpiryBucket.W1
 
 
-class VolStrangleStrike(BaseModel):
+class CreditVerticalExits(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    call_delta_min: Annotated[float, Field(gt=0, lt=1)] = 0.20
-    call_delta_max: Annotated[float, Field(gt=0, lt=1)] = 0.30
-    call_delta_target: Annotated[float, Field(gt=0, lt=1)] = 0.25
-    put_delta_min: Annotated[float, Field(gt=0, lt=1)] = 0.20
-    put_delta_max: Annotated[float, Field(gt=0, lt=1)] = 0.30
-    put_delta_target: Annotated[float, Field(gt=0, lt=1)] = 0.25
+    profit_take_pct_of_credit: Annotated[float, Field(gt=0, lt=1)] = 0.50
+    stop_loss_x_credit: Annotated[float, Field(gt=0)] = 2.0
+    force_close_days_before_expiry: Annotated[int, Field(ge=0, le=7)] = 2
 
 
-class VolStrangleExits(BaseModel):
+class CreditVerticalConfig(BaseStrategyConfig):
+    id: Literal[StrategyId.CREDIT_VERTICAL] = StrategyId.CREDIT_VERTICAL
+    entry: DirectionalEntry = DirectionalEntry()
+    expiry: CreditVerticalExpiry = CreditVerticalExpiry()
+    spread: CreditSpreadWings = CreditSpreadWings()
+    credit: CreditSpreadCredit = CreditSpreadCredit()
+    desk: StrategyLegDeskConfig = StrategyLegDeskConfig()
+    exits: CreditVerticalExits = CreditVerticalExits()
+
+
+class LongStraddleSetup(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    profit_take_pct_of_premium: Annotated[float, Field(gt=0, lt=1)] = 0.50
-    stop_loss_pct_of_premium: Annotated[float, Field(gt=0, lt=1)] = 0.50
+    timeframe_short: Timeframe = Timeframe.M15
+    timeframe_long: Timeframe = Timeframe.H1
+    atr_period: int = 14
+    atr_percentile_max: Annotated[float, Field(gt=0, le=1)] = 0.40
+    atr_percentile_lookback: int = 100
+    bbwidth_period: int = 20
+    bbwidth_std: float = 2.0
+    bbwidth_percentile_max: Annotated[float, Field(gt=0, le=1)] = 0.40
+    range_compression_bars: int = 8
+    range_compression_ratio: Annotated[float, Field(gt=0, lt=1)] = 0.55
+    range_compression_lookback_days: int = 14
+    require_range_compression: bool = True
+    anti_revenge_hours: Annotated[int, Field(ge=0)] = 12
+
+
+class LongStraddleExpiry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    prefer: ExpiryBucket = ExpiryBucket.D1
+    fallback: ExpiryBucket = ExpiryBucket.D2
+
+
+class LongStraddleExits(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    profit_take_pct_of_premium: Annotated[float, Field(gt=0, lt=1)] = 0.40
+    stop_loss_pct_of_premium: Annotated[float, Field(gt=0, lt=1)] = 0.40
     force_close_hours_before_expiry: Annotated[float, Field(gt=0)] = 4.0
 
 
-class VolStrangleConfig(BaseStrategyConfig):
-    id: Literal[StrategyId.VOL_STRANGLE] = StrategyId.VOL_STRANGLE
-    setup: VolStrangleSetup = VolStrangleSetup()
-    expiry: VolStrangleExpiry = VolStrangleExpiry()
-    strike: VolStrangleStrike = VolStrangleStrike()
+class LongStraddleConfig(BaseStrategyConfig):
+    id: Literal[StrategyId.LONG_STRADDLE] = StrategyId.LONG_STRADDLE
+    setup: LongStraddleSetup = LongStraddleSetup()
+    expiry: LongStraddleExpiry = LongStraddleExpiry()
     desk: StrategyLegDeskConfig = StrategyLegDeskConfig()
-    exits: VolStrangleExits = VolStrangleExits()
+    exits: LongStraddleExits = LongStraddleExits()
 
 
-StrategyConfig = DirectionalConfig | IronCondorConfig | VolStrangleConfig
+StrategyConfig = DirectionalConfig | CreditVerticalConfig | LongStraddleConfig

@@ -1,4 +1,4 @@
-"""Tests for VolStrangleStrategy. AC: low-ATR + tight 1h BBwidth + compressed 15m range →
+"""Tests for LongStraddleStrategy. AC: low-ATR + tight 1h BBwidth + compressed 15m range →
 1 two-leg intent; trending market → 0 intents."""
 
 from __future__ import annotations
@@ -6,7 +6,7 @@ from __future__ import annotations
 import datetime as dt
 
 from bot.config.models import StrategyId, Underlying
-from bot.strategies.vol_strangle import VolStrangleStrategy
+from bot.strategies.long_straddle import LongStraddleStrategy
 
 from tests.strategy_fixtures import (
     make_chain,
@@ -23,7 +23,7 @@ def _strikes() -> list[int]:
     return list(range(85000, 115001, 500))
 
 
-def test_quiet_market_fires_2leg_long_strangle() -> None:
+def test_quiet_market_fires_2leg_long_straddle() -> None:
     now = dt.datetime(2026, 5, 12, 10, 0, 0)
     spot = 100_000.0
     chain = make_chain(
@@ -49,11 +49,11 @@ def test_quiet_market_fires_2leg_long_strangle() -> None:
     )
     candles = {Underlying.BTC: {"15m": candles_15m, "1h": candles_1h}}
     state = make_market_state(now, chain=chain, candles_by_tf=candles, spots={Underlying.BTC: spot})
-    strat = VolStrangleStrategy(strangle_cfg())
+    strat = LongStraddleStrategy(strangle_cfg())
     intents, decisions = strat.evaluate(state)
     assert len(intents) == 1, f"expected 1 intent, got reasons={[d['reason'] for d in decisions]}"
     intent = intents[0]
-    assert intent.strategy_id == StrategyId.VOL_STRANGLE
+    assert intent.strategy_id == StrategyId.LONG_STRADDLE
     assert len(intent.legs) == 2
     sides = [leg.side for leg in intent.legs]
     types = sorted(leg.option_type for leg in intent.legs)
@@ -76,7 +76,7 @@ def test_trending_market_does_not_fire() -> None:
     )
     candles = {Underlying.BTC: {"15m": trending_15m, "1h": trending_1h}}
     state = make_market_state(now, chain=chain, candles_by_tf=candles, spots={Underlying.BTC: spot})
-    strat = VolStrangleStrategy(strangle_cfg())
+    strat = LongStraddleStrategy(strangle_cfg())
     intents, _ = strat.evaluate(state)
     assert intents == []
 
@@ -94,7 +94,7 @@ def test_insufficient_history_does_not_fire() -> None:
     short_1h = make_flat_candles(n=10, price=spot, base_range=200, bucket_seconds=3600)
     candles = {Underlying.BTC: {"15m": short_15m, "1h": short_1h}}
     state = make_market_state(now, chain=chain, candles_by_tf=candles, spots={Underlying.BTC: spot})
-    strat = VolStrangleStrategy(strangle_cfg())
+    strat = LongStraddleStrategy(strangle_cfg())
     intents, decisions = strat.evaluate(state)
     assert intents == []
     assert all(d["reason"] == "insufficient_history" for d in decisions)
@@ -126,7 +126,7 @@ def test_cooldown_blocks_entry() -> None:
     )
     candles = {Underlying.BTC: {"15m": candles_15m, "1h": candles_1h}}
     state = make_market_state(now, chain=chain, candles_by_tf=candles, spots={Underlying.BTC: spot})
-    strat = VolStrangleStrategy(strangle_cfg())
+    strat = LongStraddleStrategy(strangle_cfg())
     strat.context.cooldown_until = now + dt.timedelta(hours=12)
     intents, decisions = strat.evaluate(state)
     assert intents == []
@@ -162,7 +162,7 @@ def test_low_open_interest_rejects_strangle() -> None:
     )
     candles = {Underlying.BTC: {"15m": candles_15m, "1h": candles_1h}}
     state = make_market_state(now, chain=chain, candles_by_tf=candles, spots={Underlying.BTC: spot})
-    strat = VolStrangleStrategy(strangle_cfg(desk={"min_open_interest": 50}))
+    strat = LongStraddleStrategy(strangle_cfg(desk={"min_open_interest": 50}))
     intents, decisions = strat.evaluate(state)
     assert intents == []
     assert any(d["reason"] == "low_open_interest" for d in decisions)
@@ -195,7 +195,7 @@ def test_strangle_passes_logs_leg_greeks() -> None:
     )
     candles = {Underlying.BTC: {"15m": candles_15m, "1h": candles_1h}}
     state = make_market_state(now, chain=chain, candles_by_tf=candles, spots={Underlying.BTC: spot})
-    strat = VolStrangleStrategy(strangle_cfg(desk={"min_open_interest": 50}))
+    strat = LongStraddleStrategy(strangle_cfg(desk={"min_open_interest": 50}))
     intents, decisions = strat.evaluate(state)
     assert len(intents) == 1
     fv = next(d["feature_vector"] for d in decisions if d["passed"])

@@ -70,7 +70,7 @@ def test_strangle_net_delta() -> None:
     legs = [
         Leg(
             trade_id=1,
-            strategy_id="vol_strangle",
+            strategy_id="long_straddle",
             leg_idx=0,
             symbol=call_sym,
             side="buy",
@@ -79,7 +79,7 @@ def test_strangle_net_delta() -> None:
         ),
         Leg(
             trade_id=1,
-            strategy_id="vol_strangle",
+            strategy_id="long_straddle",
             leg_idx=1,
             symbol=put_sym,
             side="buy",

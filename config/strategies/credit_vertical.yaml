@@ -1,0 +1,40 @@
+id: credit_vertical
+enabled: true
+enabled_live: false
+risk_weight: 0.25
+risk_per_trade_pct: 0.015
+trade_premium_cap_usd: 25
+max_lots_cap: 10
+underlyings: [BTC, ETH]
+
+entry:
+  timeframe: 15m
+  ema_fast: 9
+  ema_slow: 21
+  atr_period: 14
+  prior_bars: 4
+  breakout_atr_mult: 0.25
+
+expiry:
+  prefer: D2
+  fallback: W1
+
+spread:
+  short_delta_min: 0.18
+  short_delta_max: 0.28
+  short_delta_target: 0.22
+  long_delta_min: 0.05
+  long_delta_max: 0.12
+  long_delta_target: 0.08
+
+credit:
+  min_credit_pct_of_width: 0.20
+
+desk:
+  min_open_interest: 0
+  greeks_required: true
+
+exits:
+  profit_take_pct_of_credit: 0.50
+  stop_loss_x_credit: 2.0
+  force_close_days_before_expiry: 2

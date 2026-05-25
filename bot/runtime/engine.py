@@ -20,12 +20,12 @@ from bot.analytics.decision_log import DecisionLogWriter
 from bot.analytics.journal import TradeJournal
 from bot.config.loader import load_all
 from bot.config.models import (
+    CreditVerticalConfig,
     DirectionalConfig,
-    IronCondorConfig,
+    LongStraddleConfig,
     StrategyConfig,
     StrategyId,
     Underlying,
-    VolStrangleConfig,
 )
 from bot.data.candles import CandleAggregator
 from bot.data.chain_cache import ChainCache, QuoteSnapshot, parse_symbol
@@ -70,14 +70,14 @@ from bot.storage.models import (
     TradeStatus,
 )
 from bot.strategies import (
+    CreditVerticalStrategy,
     DirectionalStrategy,
-    IronCondorStrategy,
+    LongStraddleStrategy,
     MarketState,
     PositionState,
     Strategy,
     StrategyDispatcher,
     StrategyRegistry,
-    VolStrangleStrategy,
 )
 from bot.strategies.base import ExitTrigger, Intent, LegIntent, TrailAction
 
@@ -104,6 +104,24 @@ def _apply_directional_exit_cooldown(
     strat.context.set_underlying_cooldown(trade.underlying, until)
 
 
+def _apply_long_straddle_exit_cooldown(
+    registry: StrategyRegistry,
+    trade: Trade,
+    *,
+    now: dt.datetime,
+) -> None:
+    try:
+        strat = registry.get(StrategyId(trade.strategy_id))
+    except KeyError:
+        return
+    if not isinstance(strat, LongStraddleStrategy):
+        return
+    hours = float(strat.config.setup.anti_revenge_hours)
+    if hours <= 0:
+        return
+    strat.context.cooldown_until = now + dt.timedelta(hours=hours)
+
+
 def _note_float(notes: dict[str, Any], key: str) -> float | None:
     v = notes.get(key)
     if v is None:
@@ -119,10 +137,10 @@ def _build_strategies(configs: list[StrategyConfig]) -> list[Strategy]:
     for cfg in configs:
         if isinstance(cfg, DirectionalConfig):
             out.append(DirectionalStrategy(cfg))
-        elif isinstance(cfg, IronCondorConfig):
-            out.append(IronCondorStrategy(cfg))
-        elif isinstance(cfg, VolStrangleConfig):
-            out.append(VolStrangleStrategy(cfg))
+        elif isinstance(cfg, CreditVerticalConfig):
+            out.append(CreditVerticalStrategy(cfg))
+        elif isinstance(cfg, LongStraddleConfig):
+            out.append(LongStraddleStrategy(cfg))
     return out
 
 
@@ -670,6 +688,7 @@ async def run_trading_engine() -> None:
         global_config=app_config.global_config,
         nav_tracker=nav_tracker,
         strategy_configs=strategy_cfgs,
+        require_live_enabled=settings.is_live,
     )
     registry = StrategyRegistry(_build_strategies(app_config.strategies))
     dispatcher = StrategyDispatcher(registry)
@@ -944,6 +963,7 @@ async def run_trading_engine() -> None:
                             chain=chain,
                         )
                         _apply_directional_exit_cooldown(registry, trade, now=now)
+                        _apply_long_straddle_exit_cooldown(registry, trade, now=now)
                         position_runtimes.pop(trade.id, None)
                     elif directive.kind == ExitKind.UPDATE_STOP and directive.new_stop_price is not None:
                         trail = TrailAction(new_stop_price=directive.new_stop_price)

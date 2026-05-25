@@ -5,8 +5,8 @@ Multi-strategy options trading bot for **Delta Exchange India** (BTC/ETH).
 Three strategies share one execution stack, risk budget, decision log, and analytics:
 
 - **Strategy A — Directional long-premium** (60% risk budget, ~20-40 trades/3wk)
-- **Strategy B — Weekly iron condor** (25% risk budget, ~6 trades/3wk)
-- **Strategy C — Vol-breakout long strangle** (15% risk budget, ~2-4 trades/3wk)
+- **Strategy B — Trend credit vertical** (25% risk budget; bull put / bear call spreads)
+- **Strategy C — Long ATM straddle** (15% risk budget; vol compression breakout)
 
 ## Quick start
 
@@ -35,8 +35,8 @@ Each strategy has its own gate. Dry-run alone does not promote anything:
 
 ```bash
 make go-live STRATEGY=directional   # 10 days, 20+ trades, integrity check, kill-switch self-test
-make go-live STRATEGY=iron_condor   # 28 days, 8+ trades
-make go-live STRATEGY=vol_strangle  # 28 days, 4+ trades (or filter eval >= 100 times)
+make go-live STRATEGY=credit_vertical   # 14 days, 12+ trades
+make go-live STRATEGY=long_straddle    # 14 days, 6+ trades
 ```
 
 ## Recovery

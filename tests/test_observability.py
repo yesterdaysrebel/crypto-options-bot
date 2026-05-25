@@ -141,7 +141,7 @@ async def test_status_dashboard_renders_with_data(db: Database) -> None:
         )
         session.add(
             Trade(
-                strategy_id="iron_condor",
+                strategy_id="credit_vertical",
                 underlying="BTC",
                 entry_ts=dt.datetime.now(),
                 status=TradeStatus.OPEN.value,

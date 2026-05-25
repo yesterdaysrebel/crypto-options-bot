@@ -10,11 +10,11 @@ import datetime as dt
 
 import pytest
 from bot.config.models import (
+    CreditVerticalConfig,
     DirectionalConfig,
-    IronCondorConfig,
+    LongStraddleConfig,
     StrategyId,
     Underlying,
-    VolStrangleConfig,
 )
 from bot.strategies import (
     Action,
@@ -68,10 +68,10 @@ def _directional_config(enabled=True, weight=0.60, per_trade=0.01) -> Directiona
     )
 
 
-def _condor_config(enabled=True, weight=0.25, per_trade=0.015) -> IronCondorConfig:
-    return IronCondorConfig.model_validate(
+def _condor_config(enabled=True, weight=0.25, per_trade=0.015) -> CreditVerticalConfig:
+    return CreditVerticalConfig.model_validate(
         {
-            "id": "iron_condor",
+            "id": "credit_vertical",
             "enabled": enabled,
             "risk_weight": weight,
             "risk_per_trade_pct": per_trade,
@@ -80,10 +80,10 @@ def _condor_config(enabled=True, weight=0.25, per_trade=0.015) -> IronCondorConf
     )
 
 
-def _strangle_config(enabled=True, weight=0.15, per_trade=0.01) -> VolStrangleConfig:
-    return VolStrangleConfig.model_validate(
+def _strangle_config(enabled=True, weight=0.15, per_trade=0.01) -> LongStraddleConfig:
+    return LongStraddleConfig.model_validate(
         {
-            "id": "vol_strangle",
+            "id": "long_straddle",
             "enabled": enabled,
             "risk_weight": weight,
             "risk_per_trade_pct": per_trade,
@@ -105,9 +105,9 @@ def test_registry_get_and_contains() -> None:
     reg = StrategyRegistry([a, b])
     assert len(reg) == 2
     assert StrategyId.DIRECTIONAL in reg
-    assert "iron_condor" in reg
+    assert "credit_vertical" in reg
     assert reg.get("directional") is a
-    assert reg.get(StrategyId.IRON_CONDOR) is b
+    assert reg.get(StrategyId.CREDIT_VERTICAL) is b
 
 
 def test_registry_enabled_filters_disabled() -> None:
@@ -127,8 +127,8 @@ def test_risk_budget_inr_computation() -> None:
     )
     nav = 50_000.0
     assert reg.risk_budget_inr(nav, "directional") == pytest.approx(50_000 * 0.6 * 0.01)
-    assert reg.risk_budget_inr(nav, "iron_condor") == pytest.approx(50_000 * 0.25 * 0.015)
-    assert reg.risk_budget_inr(nav, "vol_strangle") == pytest.approx(50_000 * 0.15 * 0.01)
+    assert reg.risk_budget_inr(nav, "credit_vertical") == pytest.approx(50_000 * 0.25 * 0.015)
+    assert reg.risk_budget_inr(nav, "long_straddle") == pytest.approx(50_000 * 0.15 * 0.01)
 
 
 def test_dispatcher_collects_intents_and_decisions() -> None:
@@ -143,7 +143,7 @@ def test_dispatcher_collects_intents_and_decisions() -> None:
     a = _Stub(
         _directional_config(), intents=[intent], decisions=[{"strategy_id": "directional", "passed": True}]
     )
-    b = _Stub(_condor_config(), intents=[], decisions=[{"strategy_id": "iron_condor", "passed": False}])
+    b = _Stub(_condor_config(), intents=[], decisions=[{"strategy_id": "credit_vertical", "passed": False}])
     reg = StrategyRegistry([a, b])
     disp = StrategyDispatcher(reg)
     result = disp.evaluate_all(_market())
@@ -154,14 +154,14 @@ def test_dispatcher_collects_intents_and_decisions() -> None:
 
 def test_dispatcher_isolates_strategy_errors() -> None:
     bad = _Stub(_directional_config(), raise_on_evaluate=True)
-    good = _Stub(_condor_config(), decisions=[{"strategy_id": "iron_condor", "passed": True}])
+    good = _Stub(_condor_config(), decisions=[{"strategy_id": "credit_vertical", "passed": True}])
     reg = StrategyRegistry([bad, good])
     disp = StrategyDispatcher(reg)
     result = disp.evaluate_all(_market())
     assert StrategyId.DIRECTIONAL in result.errors
     assert "boom" in result.errors[StrategyId.DIRECTIONAL]
-    assert StrategyId.IRON_CONDOR in result.decisions_by_strategy
-    assert StrategyId.IRON_CONDOR not in result.errors
+    assert StrategyId.CREDIT_VERTICAL in result.decisions_by_strategy
+    assert StrategyId.CREDIT_VERTICAL not in result.errors
 
 
 def test_dispatcher_manage_routes_to_owner() -> None:
@@ -183,7 +183,7 @@ def test_dispatcher_manage_routes_to_owner() -> None:
 
 def test_dispatcher_skips_when_only_filter_excludes() -> None:
     a = _Stub(_directional_config(), decisions=[{"strategy_id": "directional"}])
-    b = _Stub(_condor_config(), decisions=[{"strategy_id": "iron_condor"}])
+    b = _Stub(_condor_config(), decisions=[{"strategy_id": "credit_vertical"}])
     reg = StrategyRegistry([a, b])
     disp = StrategyDispatcher(reg)
     res = disp.evaluate_all(_market(), only={StrategyId.DIRECTIONAL})

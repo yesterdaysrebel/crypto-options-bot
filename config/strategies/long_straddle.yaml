@@ -1,42 +1,36 @@
-id: vol_strangle
+id: long_straddle
 enabled: true
 enabled_live: false
 risk_weight: 0.15
 risk_per_trade_pct: 0.01
-max_lots_cap: 5
+trade_premium_cap_usd: 25
+max_lots_cap: 10
 underlyings: [BTC, ETH]
 
 setup:
   timeframe_short: 15m
   timeframe_long: 1h
   atr_period: 14
-  atr_percentile_max: 0.30
+  atr_percentile_max: 0.40
   atr_percentile_lookback: 100
   bbwidth_period: 20
   bbwidth_std: 2.0
-  bbwidth_lookback_days: 180
+  bbwidth_percentile_max: 0.40
   range_compression_bars: 8
-  range_compression_ratio: 0.5
+  range_compression_ratio: 0.55
   range_compression_lookback_days: 14
-  anti_revenge_hours: 24
+  require_range_compression: true
+  anti_revenge_hours: 12
 
 expiry:
-  prefer: D2
-  fallback: W1
-
-strike:
-  call_delta_min: 0.20
-  call_delta_max: 0.30
-  call_delta_target: 0.25
-  put_delta_min: 0.20
-  put_delta_max: 0.30
-  put_delta_target: 0.25
+  prefer: D1
+  fallback: D2
 
 desk:
   min_open_interest: 0
   greeks_required: true
 
 exits:
-  profit_take_pct_of_premium: 0.50
-  stop_loss_pct_of_premium: 0.50
+  profit_take_pct_of_premium: 0.40
+  stop_loss_pct_of_premium: 0.40
   force_close_hours_before_expiry: 4.0

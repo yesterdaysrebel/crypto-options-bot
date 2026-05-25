@@ -20,9 +20,9 @@ from enum import StrEnum
 from typing import Any
 
 from bot.config.models import (
+    CreditVerticalConfig,
     DirectionalConfig,
-    IronCondorConfig,
-    VolStrangleConfig,
+    LongStraddleConfig,
 )
 from bot.strategies.base import (
     Action,
@@ -120,7 +120,7 @@ class ExitEngine:
                 )
             position.current_trail_stop_price = runtime.last_trail_stop
 
-        elif isinstance(cfg, IronCondorConfig):
+        elif isinstance(cfg, CreditVerticalConfig):
             # Cost to close: pay to buy back shorts; receive from selling longs.
             #   unwind_cost = sum(short_mids_now) - sum(long_mids_now)
             unwind_cost = 0.0
@@ -133,7 +133,7 @@ class ExitEngine:
                 unwind_cost += sign * quote.mid
             position.notes["current_unwind_cost"] = unwind_cost
 
-        elif isinstance(cfg, VolStrangleConfig):
+        elif isinstance(cfg, LongStraddleConfig):
             total = 0.0
             for leg in position.leg_states:
                 quote = market.quote_for.get(leg["symbol"])

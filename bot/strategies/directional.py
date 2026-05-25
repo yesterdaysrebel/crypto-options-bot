@@ -195,7 +195,10 @@ class DirectionalStrategy(Strategy):
                 "mid": selection.quote.mid,
                 **leg_features,
             },
-            target_premium_inr=market.premium_inr(selection.quote.mid),
+            target_premium_inr=market.premium_inr(
+                selection.quote.mid,
+                lot_size=selection.instrument.lot_size,
+            ),
             spread_pct_max=self._spread_pct_max,
         )
 

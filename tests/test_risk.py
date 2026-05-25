@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import datetime as dt
 
+import pytest
 from bot.config.models import (
+    CreditVerticalConfig,
     DirectionalConfig,
     GlobalConfig,
-    IronCondorConfig,
+    LongStraddleConfig,
     StrategyId,
     Underlying,
-    VolStrangleConfig,
 )
 from bot.risk import (
     CapStatus,
@@ -52,7 +53,7 @@ def _intent_directional(premium=200.0, lots=10) -> Intent:
 
 def _intent_condor(max_loss=500.0, lots=3) -> Intent:
     return Intent(
-        strategy_id=StrategyId.IRON_CONDOR,
+        strategy_id=StrategyId.CREDIT_VERTICAL,
         underlying=Underlying.BTC,
         bucket="W1",  # type: ignore[arg-type]
         legs=[],
@@ -65,7 +66,7 @@ def _intent_condor(max_loss=500.0, lots=3) -> Intent:
 
 def _intent_strangle(premium=200.0, lots=5) -> Intent:
     return Intent(
-        strategy_id=StrategyId.VOL_STRANGLE,
+        strategy_id=StrategyId.LONG_STRADDLE,
         underlying=Underlying.BTC,
         bucket="D2",  # type: ignore[arg-type]
         legs=[],
@@ -90,18 +91,18 @@ def _strategy_configs() -> dict[StrategyId, object]:
                 "max_lots_cap": 10,
             }
         ),
-        StrategyId.IRON_CONDOR: IronCondorConfig.model_validate(
+        StrategyId.CREDIT_VERTICAL: CreditVerticalConfig.model_validate(
             {
-                "id": "iron_condor",
+                "id": "credit_vertical",
                 "enabled": True,
                 "risk_weight": 0.25,
                 "risk_per_trade_pct": 0.015,
                 "max_lots_cap": 3,
             }
         ),
-        StrategyId.VOL_STRANGLE: VolStrangleConfig.model_validate(
+        StrategyId.LONG_STRADDLE: LongStraddleConfig.model_validate(
             {
-                "id": "vol_strangle",
+                "id": "long_straddle",
                 "enabled": True,
                 "risk_weight": 0.15,
                 "risk_per_trade_pct": 0.01,
@@ -200,11 +201,60 @@ def test_caps_circuit_breaker_already_tripped() -> None:
     assert out.status == CapStatus.CIRCUIT_BREAKER
 
 
+def test_directional_sizing_btc_with_contract_value() -> None:
+    """BTC mids look huge without lot_size; per-lot notional is mid x contract_value x FX."""
+    cfg = DirectionalConfig.model_validate(
+        {
+            "id": "directional",
+            "enabled": True,
+            "risk_weight": 0.60,
+            "risk_per_trade_pct": 0.01,
+            "max_lots_cap": 20,
+            "trade_premium_cap_usd": 50.0,
+        }
+    )
+    mgr = RiskManager(
+        global_config=_global_cfg(),
+        nav_tracker=NavTracker(
+            nav_now=67000.0,
+            nav_open_today=67000.0,
+            nav_open_week=67000.0,
+            peak_nav=67000.0,
+            circuit_breaker_tripped=False,
+        ),
+        strategy_configs={StrategyId.DIRECTIONAL: cfg},
+    )
+    per_lot = 80.0 * 0.001 * 85.0  # BTC-ish mid x contract_value x INR
+    intent = _intent_directional(premium=per_lot, lots=20)
+    result = mgr.gate(intent, now_utc=_now_in_window(), accounting=_empty_accounting(), usd_inr_rate=85.0)
+    assert result.approved
+    assert result.sized_lots == 20
+    assert result.notes["risk_budget_inr"] == pytest.approx(min(67000.0 * 0.6 * 0.01, 50.0 * 85.0))
+
+
 def test_directional_sizing_floor_lots() -> None:
     mgr = _manager()
     intent = _intent_directional(premium=400.0, lots=10)  # budget = 50k * 0.6 * 0.01 = 300; per_lot=400
     result = mgr.gate(intent, now_utc=_now_in_window(), accounting=_empty_accounting())
     assert result.decision == RiskDecision.ZERO_LOTS_AFTER_FLOOR
+
+
+def test_live_mode_blocks_strategy_without_enabled_live() -> None:
+    mgr = RiskManager(
+        global_config=_global_cfg(),
+        nav_tracker=NavTracker(
+            nav_now=50000.0,
+            nav_open_today=50000.0,
+            nav_open_week=50000.0,
+            peak_nav=50000.0,
+            circuit_breaker_tripped=False,
+        ),
+        strategy_configs=_strategy_configs(),
+        require_live_enabled=True,
+    )
+    intent = _intent_directional(premium=100.0, lots=10)
+    result = mgr.gate(intent, now_utc=_now_in_window(), accounting=_empty_accounting())
+    assert result.decision == RiskDecision.STRATEGY_NOT_LIVE_ENABLED
 
 
 def test_directional_sizing_normal() -> None:
@@ -269,8 +319,8 @@ def test_global_max_concurrent_rejects() -> None:
         open_count_total=3,
         open_count_by_strategy={
             StrategyId.DIRECTIONAL: 1,
-            StrategyId.IRON_CONDOR: 1,
-            StrategyId.VOL_STRANGLE: 1,
+            StrategyId.CREDIT_VERTICAL: 1,
+            StrategyId.LONG_STRADDLE: 1,
         },
     )
     result = mgr.gate(_intent_directional(), now_utc=_now_in_window(), accounting=accounting)

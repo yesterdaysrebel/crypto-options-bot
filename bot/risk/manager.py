@@ -40,6 +40,7 @@ class RiskDecision(StrEnum):
     CONDOR_MAX_LOSS_ABOVE_BUDGET = "condor_max_loss_above_budget"
     STRANGLE_PREMIUM_ABOVE_RISK_BUDGET = "strangle_premium_above_risk_budget"
     STRATEGY_DISABLED = "strategy_disabled"
+    STRATEGY_NOT_LIVE_ENABLED = "strategy_not_live_enabled"
     LOW_OPEN_INTEREST = "low_open_interest"
     MISSING_GREEKS = "missing_greeks"
     PORTFOLIO_DELTA_LIMIT = "portfolio_delta_limit"
@@ -74,10 +75,12 @@ class RiskManager:
         global_config: GlobalConfig,
         nav_tracker: NavTracker,
         strategy_configs: dict[StrategyId, StrategyConfig],
+        require_live_enabled: bool = False,
     ) -> None:
         self._cfg = global_config
         self._nav = nav_tracker
         self._strategies = strategy_configs
+        self._require_live_enabled = require_live_enabled
         self._window = TradingWindow(
             global_config.trading_window.start,
             global_config.trading_window.end,
@@ -105,6 +108,18 @@ class RiskManager:
     @property
     def caps(self) -> DrawdownCaps:
         return self._caps
+
+    def _trade_risk_budget_inr(
+        self,
+        strategy_cfg: StrategyConfig,
+        *,
+        usd_inr_rate: float,
+    ) -> float:
+        budget = self._nav.nav_now * strategy_cfg.risk_weight * strategy_cfg.risk_per_trade_pct
+        cap_usd = strategy_cfg.trade_premium_cap_usd
+        if cap_usd is not None:
+            budget = min(budget, float(cap_usd) * usd_inr_rate)
+        return budget
 
     def evaluate_caps(self) -> LossCapResult:
         return self._caps.evaluate(
@@ -146,6 +161,8 @@ class RiskManager:
         strategy_cfg = self._strategies.get(intent.strategy_id)
         if strategy_cfg is None or not strategy_cfg.enabled:
             return SizingResult(decision=RiskDecision.STRATEGY_DISABLED, intent=intent)
+        if self._require_live_enabled and not strategy_cfg.enabled_live:
+            return SizingResult(decision=RiskDecision.STRATEGY_NOT_LIVE_ENABLED, intent=intent)
 
         if accounting.open_count_total >= self._cfg.concurrency.max_total:
             return SizingResult(decision=RiskDecision.GLOBAL_MAX_CONCURRENT, intent=intent)
@@ -195,7 +212,7 @@ class RiskManager:
         chain: ChainCache | None = None,
         usd_inr_rate: float = 1.0,
     ) -> SizingResult:
-        risk_budget_inr = self._nav.nav_now * strategy_cfg.risk_weight * strategy_cfg.risk_per_trade_pct
+        risk_budget_inr = self._trade_risk_budget_inr(strategy_cfg, usd_inr_rate=usd_inr_rate)
         sized: int
         notes: dict[str, float | str]
 
@@ -218,7 +235,7 @@ class RiskManager:
             risk_inr = sized * per_lot_premium_inr
             notes = {"risk_budget_inr": risk_budget_inr, "per_lot": per_lot_premium_inr}
 
-        elif intent.strategy_id == StrategyId.IRON_CONDOR:
+        elif intent.strategy_id == StrategyId.CREDIT_VERTICAL:
             if intent.target_max_loss_inr is None or intent.target_max_loss_inr <= 0:
                 return SizingResult(
                     decision=RiskDecision.CONDOR_MAX_LOSS_ABOVE_BUDGET,
@@ -237,7 +254,7 @@ class RiskManager:
             risk_inr = sized * per_lot_max_loss
             notes = {"risk_budget_inr": risk_budget_inr, "per_lot_max_loss": per_lot_max_loss}
 
-        elif intent.strategy_id == StrategyId.VOL_STRANGLE:
+        elif intent.strategy_id == StrategyId.LONG_STRADDLE:
             if intent.target_premium_inr is None or intent.target_premium_inr <= 0:
                 return SizingResult(
                     decision=RiskDecision.STRANGLE_PREMIUM_ABOVE_RISK_BUDGET,
@@ -274,9 +291,9 @@ class RiskManager:
                 sized = capped
                 if intent.strategy_id == StrategyId.DIRECTIONAL:
                     risk_inr = sized * float(intent.target_premium_inr or 0)
-                elif intent.strategy_id == StrategyId.IRON_CONDOR:
+                elif intent.strategy_id == StrategyId.CREDIT_VERTICAL:
                     risk_inr = sized * float(intent.target_max_loss_inr or 0)
-                elif intent.strategy_id == StrategyId.VOL_STRANGLE:
+                elif intent.strategy_id == StrategyId.LONG_STRADDLE:
                     risk_inr = sized * float(intent.target_premium_inr or 0)
 
         if sized < 1:

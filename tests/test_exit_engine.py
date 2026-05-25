@@ -16,10 +16,10 @@ from bot.config.models import StrategyId, Underlying
 from bot.data.chain_cache import QuoteSnapshot
 from bot.exits import ExitDirective, ExitEngine, ExitKind, PositionRuntime
 from bot.strategies import (
+    CreditVerticalStrategy,
     DirectionalStrategy,
-    IronCondorStrategy,
+    LongStraddleStrategy,
     StrategyRegistry,
-    VolStrangleStrategy,
 )
 from bot.strategies.base import ExitTrigger, MarketState, PositionState
 
@@ -145,10 +145,10 @@ def test_directional_force_close_within_t_minus_2h() -> None:
     assert any(d.kind == ExitKind.CLOSE and d.trigger == ExitTrigger.FORCE_CLOSE_EXPIRY for d in directives)
 
 
-def _make_position_condor(entry_credit: float = 300.0) -> PositionState:
+def _make_position_credit_vertical(entry_credit: float = 300.0) -> PositionState:
     return PositionState(
         trade_id=2,
-        strategy_id=StrategyId.IRON_CONDOR,
+        strategy_id=StrategyId.CREDIT_VERTICAL,
         underlying=Underlying.BTC,
         expiry=_now() + dt.timedelta(days=5),
         lots=1,
@@ -157,10 +157,8 @@ def _make_position_condor(entry_credit: float = 300.0) -> PositionState:
         leg_states=[
             {"symbol": "P-BTC-97000-190524", "side": "buy", "option_type": "put"},
             {"symbol": "P-BTC-98000-190524", "side": "sell", "option_type": "put"},
-            {"symbol": "C-BTC-102000-190524", "side": "sell", "option_type": "call"},
-            {"symbol": "C-BTC-103000-190524", "side": "buy", "option_type": "call"},
         ],
-        notes={"short_call_strike": 102_000.0, "short_put_strike": 98_000.0},
+        notes={},
     )
 
 
@@ -172,43 +170,39 @@ def _condor_market_state(quote_mids: dict[str, float], spot: float = 100_000.0) 
     return state
 
 
-def test_condor_profit_take_emits_close() -> None:
-    strat = IronCondorStrategy(condor_cfg())
+def test_credit_vertical_profit_take_emits_close() -> None:
+    strat = CreditVerticalStrategy(condor_cfg())
     engine = ExitEngine(StrategyRegistry([strat]))
-    pos = _make_position_condor(entry_credit=300.0)
+    pos = _make_position_credit_vertical(entry_credit=100.0)
     quotes = {
-        "P-BTC-97000-190524": 20.0,
-        "P-BTC-98000-190524": 50.0,
-        "C-BTC-102000-190524": 50.0,
-        "C-BTC-103000-190524": 20.0,
+        "P-BTC-97000-190524": 10.0,
+        "P-BTC-98000-190524": 30.0,
     }
     state = _condor_market_state(quotes)
     runtime = PositionRuntime(position=pos)
     directives = engine.step(runtime, state)
     assert any(d.kind == ExitKind.CLOSE and d.trigger == ExitTrigger.TARGET for d in directives)
-    assert pos.notes["current_unwind_cost"] == 50 + 50 - 20 - 20
+    assert pos.notes["current_unwind_cost"] == 30.0 - 10.0
 
 
-def test_condor_tested_side_cut_emits_close() -> None:
-    strat = IronCondorStrategy(condor_cfg())
+def test_credit_vertical_stop_loss_emits_close() -> None:
+    strat = CreditVerticalStrategy(condor_cfg())
     engine = ExitEngine(StrategyRegistry([strat]))
-    pos = _make_position_condor(entry_credit=300.0)
+    pos = _make_position_credit_vertical(entry_credit=50.0)
     quotes = {
-        "P-BTC-97000-190524": 30.0,
-        "P-BTC-98000-190524": 100.0,
-        "C-BTC-102000-190524": 200.0,
-        "C-BTC-103000-190524": 100.0,
+        "P-BTC-97000-190524": 80.0,
+        "P-BTC-98000-190524": 200.0,
     }
-    state = _condor_market_state(quotes, spot=102_500.0)
+    state = _condor_market_state(quotes)
     runtime = PositionRuntime(position=pos)
     directives = engine.step(runtime, state)
-    assert any(d.kind == ExitKind.CLOSE and d.trigger == ExitTrigger.TESTED_SIDE_CUT for d in directives)
+    assert any(d.kind == ExitKind.CLOSE and d.trigger == ExitTrigger.PREMIUM_STOP for d in directives)
 
 
-def test_condor_force_close_t_minus_2d() -> None:
-    strat = IronCondorStrategy(condor_cfg())
+def test_credit_vertical_force_close_t_minus_2d() -> None:
+    strat = CreditVerticalStrategy(condor_cfg())
     engine = ExitEngine(StrategyRegistry([strat]))
-    pos = _make_position_condor(entry_credit=300.0)
+    pos = _make_position_credit_vertical(entry_credit=300.0)
     pos.expiry = _now() + dt.timedelta(days=1)
     state = _condor_market_state({})
     runtime = PositionRuntime(position=pos)
@@ -217,11 +211,11 @@ def test_condor_force_close_t_minus_2d() -> None:
 
 
 def test_strangle_profit_take_emits_close() -> None:
-    strat = VolStrangleStrategy(strangle_cfg())
+    strat = LongStraddleStrategy(strangle_cfg())
     engine = ExitEngine(StrategyRegistry([strat]))
     pos = PositionState(
         trade_id=3,
-        strategy_id=StrategyId.VOL_STRANGLE,
+        strategy_id=StrategyId.LONG_STRADDLE,
         underlying=Underlying.BTC,
         expiry=_now() + dt.timedelta(days=2),
         lots=2,
@@ -240,11 +234,11 @@ def test_strangle_profit_take_emits_close() -> None:
 
 
 def test_strangle_force_close_t_minus_4h() -> None:
-    strat = VolStrangleStrategy(strangle_cfg())
+    strat = LongStraddleStrategy(strangle_cfg())
     engine = ExitEngine(StrategyRegistry([strat]))
     pos = PositionState(
         trade_id=4,
-        strategy_id=StrategyId.VOL_STRANGLE,
+        strategy_id=StrategyId.LONG_STRADDLE,
         underlying=Underlying.BTC,
         expiry=_now() + dt.timedelta(hours=3),
         lots=2,
