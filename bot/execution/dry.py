@@ -40,8 +40,8 @@ class DryExecutor(ExecutionRouter):
         self._chain = chain
         self._slip_bps = {
             StrategyId.DIRECTIONAL: slip_bps_directional,
-            StrategyId.IRON_CONDOR: slip_bps_condor,
-            StrategyId.VOL_STRANGLE: slip_bps_strangle,
+            StrategyId.CREDIT_VERTICAL: slip_bps_condor,
+            StrategyId.LONG_STRADDLE: slip_bps_strangle,
         }
         self._rng = random.Random(seed)
         self._open_orders: dict[int, list[str]] = {}

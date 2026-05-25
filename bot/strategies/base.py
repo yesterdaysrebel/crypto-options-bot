@@ -16,11 +16,11 @@ from typing import Any, cast
 from bot.config.models import (
     DirectionalConfig,
     ExpiryBucket,
-    IronCondorConfig,
+    CreditVerticalConfig,
     StrategyConfig,
     StrategyId,
     Underlying,
-    VolStrangleConfig,
+    LongStraddleConfig,
 )
 from bot.data.candles import Candle
 from bot.data.chain_cache import ChainCache, OptionType, QuoteSnapshot, StrikeSelection
@@ -134,11 +134,16 @@ class MarketState:
     usd_inr_rate: float = 1.0
     iv_percentiles: dict[tuple[Underlying, ExpiryBucket], IvPercentileResult] = field(default_factory=dict)
 
-    def premium_inr(self, mid: float | None) -> float | None:
-        """Convert exchange quote mid (USD on Delta India) to INR for risk sizing."""
-        if mid is None:
+    def premium_inr(self, mid: float | None, *, lot_size: float) -> float | None:
+        """INR notional per exchange lot: ``mid_usd × contract_value × usd_inr_rate``.
+
+        Delta India quotes option mids in USD per unit of underlying; ``lot_size`` is
+        ``contract_value`` (e.g. 0.001 BTC, 0.01 ETH). Omitting ``lot_size`` made BTC
+        look ~1000× too expensive and blocked sizing.
+        """
+        if mid is None or lot_size <= 0:
             return None
-        return float(mid) * self.usd_inr_rate
+        return float(mid) * float(lot_size) * self.usd_inr_rate
 
     def candles(self, underlying: Underlying, timeframe: str) -> list[Candle]:
         return self.candles_by_tf.get(underlying, {}).get(timeframe, [])
@@ -242,12 +247,12 @@ __all__ = [
     "DirectionalConfig",
     "ExitTrigger",
     "Intent",
-    "IronCondorConfig",
+    "CreditVerticalConfig",
     "LegIntent",
     "MarketState",
     "PositionState",
     "Strategy",
     "StrategyContext",
     "TrailAction",
-    "VolStrangleConfig",
+    "LongStraddleConfig",
 ]

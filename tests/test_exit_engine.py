@@ -17,9 +17,9 @@ from bot.data.chain_cache import QuoteSnapshot
 from bot.exits import ExitDirective, ExitEngine, ExitKind, PositionRuntime
 from bot.strategies import (
     DirectionalStrategy,
-    IronCondorStrategy,
+    CreditVerticalStrategy,
     StrategyRegistry,
-    VolStrangleStrategy,
+    LongStraddleStrategy,
 )
 from bot.strategies.base import ExitTrigger, MarketState, PositionState
 
@@ -148,7 +148,7 @@ def test_directional_force_close_within_t_minus_2h() -> None:
 def _make_position_condor(entry_credit: float = 300.0) -> PositionState:
     return PositionState(
         trade_id=2,
-        strategy_id=StrategyId.IRON_CONDOR,
+        strategy_id=StrategyId.CREDIT_VERTICAL,
         underlying=Underlying.BTC,
         expiry=_now() + dt.timedelta(days=5),
         lots=1,
@@ -173,7 +173,7 @@ def _condor_market_state(quote_mids: dict[str, float], spot: float = 100_000.0) 
 
 
 def test_condor_profit_take_emits_close() -> None:
-    strat = IronCondorStrategy(condor_cfg())
+    strat = CreditVerticalStrategy(condor_cfg())
     engine = ExitEngine(StrategyRegistry([strat]))
     pos = _make_position_condor(entry_credit=300.0)
     quotes = {
@@ -190,7 +190,7 @@ def test_condor_profit_take_emits_close() -> None:
 
 
 def test_condor_tested_side_cut_emits_close() -> None:
-    strat = IronCondorStrategy(condor_cfg())
+    strat = CreditVerticalStrategy(condor_cfg())
     engine = ExitEngine(StrategyRegistry([strat]))
     pos = _make_position_condor(entry_credit=300.0)
     quotes = {
@@ -206,7 +206,7 @@ def test_condor_tested_side_cut_emits_close() -> None:
 
 
 def test_condor_force_close_t_minus_2d() -> None:
-    strat = IronCondorStrategy(condor_cfg())
+    strat = CreditVerticalStrategy(condor_cfg())
     engine = ExitEngine(StrategyRegistry([strat]))
     pos = _make_position_condor(entry_credit=300.0)
     pos.expiry = _now() + dt.timedelta(days=1)
@@ -217,11 +217,11 @@ def test_condor_force_close_t_minus_2d() -> None:
 
 
 def test_strangle_profit_take_emits_close() -> None:
-    strat = VolStrangleStrategy(strangle_cfg())
+    strat = LongStraddleStrategy(strangle_cfg())
     engine = ExitEngine(StrategyRegistry([strat]))
     pos = PositionState(
         trade_id=3,
-        strategy_id=StrategyId.VOL_STRANGLE,
+        strategy_id=StrategyId.LONG_STRADDLE,
         underlying=Underlying.BTC,
         expiry=_now() + dt.timedelta(days=2),
         lots=2,
@@ -240,11 +240,11 @@ def test_strangle_profit_take_emits_close() -> None:
 
 
 def test_strangle_force_close_t_minus_4h() -> None:
-    strat = VolStrangleStrategy(strangle_cfg())
+    strat = LongStraddleStrategy(strangle_cfg())
     engine = ExitEngine(StrategyRegistry([strat]))
     pos = PositionState(
         trade_id=4,
-        strategy_id=StrategyId.VOL_STRANGLE,
+        strategy_id=StrategyId.LONG_STRADDLE,
         underlying=Underlying.BTC,
         expiry=_now() + dt.timedelta(hours=3),
         lots=2,

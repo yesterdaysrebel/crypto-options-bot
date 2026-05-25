@@ -1,18 +1,7 @@
-"""Strategy C — Vol-breakout long strangle.
+"""Strategy C — Long ATM straddle after vol compression.
 
-Setup filter (per plan):
-  - 15m + 1h candles
-  - ATR(14, 15m) percentile <= cfg.setup.atr_percentile_max over the lookback window
-  - 1h BB-width contraction (BBwidth at the 30th-percentile or lower of last 180 days)
-  - 15m range compression: the last N bars' range is <= ratio * mean(last L bars' range)
-  - Anti-revenge cooldown: at least cfg.setup.anti_revenge_hours since last vol_strangle exit
-
-Strike selection: long call + long put with |delta| in [0.20, 0.30] target 0.25.
-Expiry: prefer D2 (else W1).
-Manage:
-  - +50% premium gain     -> CloseAction(TARGET)
-  - -50% premium loss      -> CloseAction(PREMIUM_STOP)
-  - T-4h before expiry     -> CloseAction(FORCE_CLOSE_EXPIRY)
+Replaces vol strangle: buys ATM call + put when 15m ATR and 1h BB width are depressed.
+Simpler than OTM strangle; better gamma on breakout for small accounts.
 """
 
 from __future__ import annotations
@@ -23,9 +12,10 @@ from typing import Any
 import numpy as np
 
 from bot.config.models import (
+    ExpiryBucket,
+    LongStraddleConfig,
     StrategyId,
     Underlying,
-    VolStrangleConfig,
 )
 from bot.data.candles import atr, bollinger_width, percentile_rank
 from bot.desk.leg_liquidity import check_multi_leg_liquidity
@@ -42,12 +32,12 @@ from bot.strategies.base import (
 )
 
 
-class VolStrangleStrategy(Strategy):
-    id = StrategyId.VOL_STRANGLE
+class LongStraddleStrategy(Strategy):
+    id = StrategyId.LONG_STRADDLE
 
-    def __init__(self, config: VolStrangleConfig) -> None:
+    def __init__(self, config: LongStraddleConfig) -> None:
         super().__init__(config)
-        self.config: VolStrangleConfig = config
+        self.config: LongStraddleConfig = config
 
     def evaluate(self, market: MarketState) -> tuple[list[Intent], list[dict[str, Any]]]:
         intents: list[Intent] = []
@@ -68,7 +58,6 @@ class VolStrangleStrategy(Strategy):
 
         candles_15m = market.candles(underlying, cfg.setup.timeframe_short.value)
         candles_1h = market.candles(underlying, cfg.setup.timeframe_long.value)
-
         min_15m = max(cfg.setup.atr_percentile_lookback, cfg.setup.range_compression_bars + 1)
         min_1h = cfg.setup.bbwidth_period + 24
 
@@ -80,6 +69,16 @@ class VolStrangleStrategy(Strategy):
                 False,
                 "insufficient_history",
                 {"n_15m": len(candles_15m), "n_1h": len(candles_1h)},
+            )
+
+        if self.context.is_in_cooldown(market.now):
+            return _decision(
+                self.id,
+                underlying,
+                None,
+                False,
+                "anti_revenge_block",
+                {"cooldown_until": str(self.context.cooldown_until)},
             )
 
         highs_15 = np.array([c.high for c in candles_15m])
@@ -97,7 +96,7 @@ class VolStrangleStrategy(Strategy):
         bbw = bollinger_width(closes_1h, cfg.setup.bbwidth_period, cfg.setup.bbwidth_std)
         bbw_finite = bbw[np.isfinite(bbw)]
         if bbw_finite.size == 0:
-            return _decision(self.id, underlying, None, False, "atr_not_ready", {})
+            return _decision(self.id, underlying, None, False, "bbwidth_not_ready", {})
         bbw_pct = percentile_rank(float(bbw[-1]), bbw_finite)
 
         ranges = highs_15 - lows_15
@@ -108,31 +107,19 @@ class VolStrangleStrategy(Strategy):
             and recent_range_mean <= cfg.setup.range_compression_ratio * lookback_range_mean
         )
 
-        if self.context.is_in_cooldown(market.now):
-            return _decision(
-                self.id,
-                underlying,
-                None,
-                False,
-                "anti_revenge_block",
-                {"cooldown_until": str(self.context.cooldown_until)},
-            )
-
         feature_vector: dict[str, Any] = {
             "spot": spot,
             "atr": float(latest_atr),
             "atr_pct": float(atr_pct) if np.isfinite(atr_pct) else None,
             "bbw_pct": bbw_pct,
-            "range_recent": recent_range_mean,
-            "range_long_mean": lookback_range_mean,
             "range_compressed": range_compressed,
         }
 
         if not (
             np.isfinite(atr_pct)
             and atr_pct <= cfg.setup.atr_percentile_max
-            and bbw_pct <= 0.30
-            and range_compressed
+            and bbw_pct <= cfg.setup.bbwidth_percentile_max
+            and (not cfg.setup.require_range_compression or range_compressed)
         ):
             return _decision(self.id, underlying, None, False, "filter_failed", feature_vector)
 
@@ -142,9 +129,7 @@ class VolStrangleStrategy(Strategy):
             underlying,
             "call",
             bucket,
-            target_delta=cfg.strike.call_delta_target,
-            delta_min=cfg.strike.call_delta_min,
-            delta_max=cfg.strike.call_delta_max,
+            spot_price=spot,
             now=market.now,
         )
         put_sel = self.select_strike(
@@ -152,9 +137,7 @@ class VolStrangleStrategy(Strategy):
             underlying,
             "put",
             bucket,
-            target_delta=cfg.strike.put_delta_target,
-            delta_min=cfg.strike.put_delta_min,
-            delta_max=cfg.strike.put_delta_max,
+            spot_price=spot,
             now=market.now,
         )
         if call_sel is None or put_sel is None or call_sel.quote.mid is None or put_sel.quote.mid is None:
@@ -164,9 +147,7 @@ class VolStrangleStrategy(Strategy):
                 underlying,
                 "call",
                 bucket,
-                target_delta=cfg.strike.call_delta_target,
-                delta_min=cfg.strike.call_delta_min,
-                delta_max=cfg.strike.call_delta_max,
+                spot_price=spot,
                 now=market.now,
             )
             put_sel = self.select_strike(
@@ -174,9 +155,7 @@ class VolStrangleStrategy(Strategy):
                 underlying,
                 "put",
                 bucket,
-                target_delta=cfg.strike.put_delta_target,
-                delta_min=cfg.strike.put_delta_min,
-                delta_max=cfg.strike.put_delta_max,
+                spot_price=spot,
                 now=market.now,
             )
         if call_sel is None or put_sel is None or call_sel.quote.mid is None or put_sel.quote.mid is None:
@@ -216,6 +195,10 @@ class VolStrangleStrategy(Strategy):
                 expiry=put_sel.instrument.expiry,
             ),
         ]
+        lot_size = call_sel.instrument.lot_size
+        feature_vector["total_premium"] = total_premium
+        feature_vector["call_strike"] = call_sel.instrument.strike
+        feature_vector["put_strike"] = put_sel.instrument.strike
 
         intent = Intent(
             strategy_id=self.id,
@@ -223,13 +206,11 @@ class VolStrangleStrategy(Strategy):
             bucket=bucket,
             legs=legs,
             requested_lots=cfg.max_lots_cap,
-            rationale="vol_breakout_long_strangle",
-            feature_vector={**feature_vector, "total_premium": total_premium},
-            target_premium_inr=market.premium_inr(total_premium),
+            rationale="long_straddle_compression",
+            feature_vector=feature_vector,
+            target_premium_inr=market.premium_inr(total_premium, lot_size=lot_size),
         )
-        payload = _decision(
-            self.id, underlying, None, True, "passed", {**feature_vector, "total_premium": total_premium}
-        )
+        payload = _decision(self.id, underlying, None, True, "passed", feature_vector)
         payload["_intent"] = intent
         return payload
 
@@ -274,4 +255,4 @@ def _decision(
     }
 
 
-__all__ = ["VolStrangleStrategy"]
+__all__ = ["LongStraddleStrategy"]

@@ -13,17 +13,17 @@ from loguru import logger
 from bot.config.models import (
     DirectionalConfig,
     GlobalConfig,
-    IronCondorConfig,
+    CreditVerticalConfig,
     StrategyConfig,
     StrategyId,
-    VolStrangleConfig,
+    LongStraddleConfig,
 )
 from bot.config.settings import Settings, load_settings
 
 _STRATEGY_CLASS_BY_ID: dict[str, type[StrategyConfig]] = {
     StrategyId.DIRECTIONAL.value: DirectionalConfig,
-    StrategyId.IRON_CONDOR.value: IronCondorConfig,
-    StrategyId.VOL_STRANGLE.value: VolStrangleConfig,
+    StrategyId.CREDIT_VERTICAL.value: CreditVerticalConfig,
+    StrategyId.LONG_STRADDLE.value: LongStraddleConfig,
 }
 
 

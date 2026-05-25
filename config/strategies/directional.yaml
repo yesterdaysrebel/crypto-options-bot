@@ -2,8 +2,11 @@ id: directional
 enabled: true
 enabled_live: false
 risk_weight: 0.60
-risk_per_trade_pct: 0.015
-max_lots_cap: 10
+# Premium budget per trade (INR cap from trade_premium_cap_usd). Lots use mid×contract_value×FX.
+# Exchange margin/leverage is not modeled; max_lots_cap limits order size (soft live start).
+risk_per_trade_pct: 0.01
+trade_premium_cap_usd: 50
+max_lots_cap: 20
 underlyings: [BTC, ETH]
 
 entry:

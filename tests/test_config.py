@@ -9,9 +9,9 @@ from pathlib import Path
 import pytest
 from bot.config import (
     DirectionalConfig,
-    IronCondorConfig,
+    CreditVerticalConfig,
     Settings,
-    VolStrangleConfig,
+    LongStraddleConfig,
     load_all,
     load_global_config,
     load_strategy_configs,
@@ -24,7 +24,7 @@ REPO_CONFIG = Path(__file__).resolve().parent.parent / "config"
 
 def test_repo_global_yaml_loads() -> None:
     g = load_global_config(REPO_CONFIG)
-    assert g.nav_inr == 100000.0
+    assert g.nav_inr == 67000.0
     assert g.usd_inr_rate == 85.0
     assert g.risk_caps.daily_loss_pct == 0.03
     assert g.risk_caps.weekly_loss_pct == 0.06
@@ -41,8 +41,10 @@ def test_repo_strategy_yamls_load_with_correct_types() -> None:
     strategies = load_strategy_configs(REPO_CONFIG)
     by_id = {s.id.value: s for s in strategies}
     assert isinstance(by_id["directional"], DirectionalConfig)
-    assert isinstance(by_id["iron_condor"], IronCondorConfig)
-    assert isinstance(by_id["vol_strangle"], VolStrangleConfig)
+    assert isinstance(by_id["credit_vertical"], CreditVerticalConfig)
+    assert isinstance(by_id["long_straddle"], LongStraddleConfig)
+    assert by_id["directional"].trade_premium_cap_usd == 50.0
+    assert by_id["directional"].max_lots_cap == 20
 
 
 def test_repo_risk_weights_sum_to_one() -> None:
@@ -52,15 +54,15 @@ def test_repo_risk_weights_sum_to_one() -> None:
 
 
 def test_disabled_strategy_skipped(tmp_path: Path) -> None:
-    _scaffold_configs(tmp_path, disable=("vol_strangle",))
+    _scaffold_configs(tmp_path, disable=("long_straddle",))
     app = load_all(config_dir=tmp_path, env_file=None)
     enabled = [s.id.value for s in app.enabled_strategies]
-    assert "vol_strangle" not in enabled
-    assert {"directional", "iron_condor"}.issubset(enabled)
+    assert "long_straddle" not in enabled
+    assert {"directional", "credit_vertical"}.issubset(enabled)
 
 
 def test_risk_weight_sum_violation_raises(tmp_path: Path) -> None:
-    _scaffold_configs(tmp_path, weights={"directional": 0.7, "iron_condor": 0.25, "vol_strangle": 0.15})
+    _scaffold_configs(tmp_path, weights={"directional": 0.7, "credit_vertical": 0.25, "long_straddle": 0.15})
     with pytest.raises(ConfigError, match=r"risk_weights must sum to 1\.0"):
         load_strategy_configs(tmp_path)
 
@@ -151,7 +153,7 @@ def _scaffold_configs(
     disable: tuple[str, ...] = (),
 ) -> None:
     """Create a minimal valid set of yamls in `root` so loaders can exercise them."""
-    weights = weights or {"directional": 0.60, "iron_condor": 0.25, "vol_strangle": 0.15}
+    weights = weights or {"directional": 0.60, "credit_vertical": 0.25, "long_straddle": 0.15}
     (root / "strategies").mkdir(parents=True, exist_ok=True)
     (root / "global.yaml").write_text(
         textwrap.dedent(
@@ -190,9 +192,9 @@ def _scaffold_configs(
             underlyings: [BTC, ETH]
             """
         ).strip(),
-        "iron_condor": textwrap.dedent(
+        "credit_vertical": textwrap.dedent(
             """
-            id: iron_condor
+            id: credit_vertical
             enabled: {enabled}
             risk_weight: {w}
             risk_per_trade_pct: 0.015
@@ -200,9 +202,9 @@ def _scaffold_configs(
             underlyings: [BTC, ETH]
             """
         ).strip(),
-        "vol_strangle": textwrap.dedent(
+        "long_straddle": textwrap.dedent(
             """
-            id: vol_strangle
+            id: long_straddle
             enabled: {enabled}
             risk_weight: {w}
             risk_per_trade_pct: 0.01

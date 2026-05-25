@@ -20,9 +20,9 @@ from bot.strategies.base import (
 )
 from bot.strategies.directional import DirectionalStrategy
 from bot.strategies.dispatcher import StrategyDispatcher
-from bot.strategies.iron_condor import IronCondorStrategy
+from bot.strategies.credit_vertical import CreditVerticalStrategy
+from bot.strategies.long_straddle import LongStraddleStrategy
 from bot.strategies.registry import StrategyRegistry
-from bot.strategies.vol_strangle import VolStrangleStrategy
 
 __all__ = [
     "Action",
@@ -31,7 +31,7 @@ __all__ = [
     "DirectionalStrategy",
     "ExitTrigger",
     "Intent",
-    "IronCondorStrategy",
+    "CreditVerticalStrategy",
     "LegIntent",
     "MarketState",
     "PositionState",
@@ -40,5 +40,5 @@ __all__ = [
     "StrategyDispatcher",
     "StrategyRegistry",
     "TrailAction",
-    "VolStrangleStrategy",
+    "LongStraddleStrategy",
 ]

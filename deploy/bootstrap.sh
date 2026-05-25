@@ -90,7 +90,7 @@ GO_LIVE_IRON_CONDOR=false
 GO_LIVE_VOL_STRANGLE=false
 
 # Modeled capital for per-trade sizing (overrides config/global.yaml nav_inr).
-BOT_NAV_INR=100000
+BOT_NAV_INR=67000
 BOT_MODE=dry
 
 # Logging / persistence

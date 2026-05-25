@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from bot.config.models import DeskConfig, GlobalConfig, StrategyId, Underlying, VolStrangleConfig
+from bot.config.models import DeskConfig, GlobalConfig, StrategyId, Underlying, LongStraddleConfig
 from bot.data.chain_cache import QuoteSnapshot
 from bot.desk.greek_sizing import cap_lots_by_greeks
 from bot.risk import RiskManager, TradeAccountingSnapshot
@@ -14,7 +14,7 @@ from bot.strategies.base import Intent, LegIntent
 
 def _strangle_intent() -> Intent:
     return Intent(
-        strategy_id=StrategyId.VOL_STRANGLE,
+        strategy_id=StrategyId.LONG_STRADDLE,
         underlying=Underlying.BTC,
         bucket="D1",  # type: ignore[arg-type]
         legs=[
@@ -73,9 +73,9 @@ def test_risk_manager_applies_greek_cap_when_desk_enabled() -> None:
         }
     )
     scfg = {
-        StrategyId.VOL_STRANGLE: VolStrangleConfig.model_validate(
+        StrategyId.LONG_STRADDLE: LongStraddleConfig.model_validate(
             {
-                "id": "vol_strangle",
+                "id": "long_straddle",
                 "enabled": True,
                 "risk_weight": 0.15,
                 "risk_per_trade_pct": 0.015,

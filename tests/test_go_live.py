@@ -150,13 +150,12 @@ async def test_go_live_fails_when_entry_iv_coverage_low(db: Database, tmp_path: 
 
 
 @pytest.mark.asyncio
-async def test_go_live_iron_condor_thresholds_are_stricter(db: Database, tmp_path: Path) -> None:
-    _write_strategy_yaml(tmp_path, "iron_condor")
-    # 20 trades but only 12 distinct days — fails the 28-day check for iron_condor.
-    await _seed_dry_trades(db, "iron_condor", n_trades=20, distinct_days=12)
+async def test_go_live_credit_vertical_thresholds_are_stricter(db: Database, tmp_path: Path) -> None:
+    _write_strategy_yaml(tmp_path, "credit_vertical")
+    # 8 trades and 10 days — fails min 12 trades / 14 days for credit_vertical.
+    await _seed_dry_trades(db, "credit_vertical", n_trades=8, distinct_days=10)
     gate = GoLiveGate(db, config_dir=tmp_path)
-    report = await gate.evaluate("iron_condor")
+    report = await gate.evaluate("credit_vertical")
     assert not report.passed
-    days_check = next(c for c in report.checks if c.name == "min_dry_days")
-    assert not days_check.passed
-    assert "28" in days_check.detail
+    trades_check = next(c for c in report.checks if c.name == "min_closed_trades")
+    assert not trades_check.passed

@@ -50,7 +50,7 @@ async def _seed_trades(db: Database, trading_date: dt.date) -> None:
                     slippage_bps=25.0,
                 ),
                 Trade(
-                    strategy_id="iron_condor",
+                    strategy_id="credit_vertical",
                     underlying="BTC",
                     entry_ts=base - dt.timedelta(hours=2),
                     exit_ts=base,
@@ -64,7 +64,7 @@ async def _seed_trades(db: Database, trading_date: dt.date) -> None:
                     slippage_bps=80.0,
                 ),
                 Trade(
-                    strategy_id="vol_strangle",
+                    strategy_id="long_straddle",
                     underlying="BTC",
                     entry_ts=base - dt.timedelta(hours=2),
                     exit_ts=base + dt.timedelta(days=1),  # excluded — not today
@@ -89,7 +89,7 @@ async def test_aggregator_produces_per_strategy_and_global_rows(db: Database, tm
         circuit_breaker_tripped=False,
     )
     by_sid = {s.strategy_id: s for s in report.per_strategy}
-    assert set(by_sid) == {GLOBAL_KEY, "directional", "iron_condor"}
+    assert set(by_sid) == {GLOBAL_KEY, "directional", "credit_vertical"}
     g = by_sid[GLOBAL_KEY]
     assert g.n_trades == 3
     assert g.n_wins == 2
@@ -112,7 +112,7 @@ async def test_aggregator_upserts_daily_pnl_and_nav(db: Database, tmp_path: Path
         nav_row = (
             await session.execute(select(NavHistory).where(NavHistory.trading_date == today))
         ).scalar_one()
-    assert {r.strategy_id for r in daily_rows} == {GLOBAL_KEY, "directional", "iron_condor"}
+    assert {r.strategy_id for r in daily_rows} == {GLOBAL_KEY, "directional", "credit_vertical"}
     assert nav_row.drawdown_from_peak_pct == pytest.approx(1.0)
     assert nav_row.circuit_breaker_tripped is False
     # Re-run is idempotent: should not create dups, should update in place.
@@ -134,7 +134,7 @@ async def test_aggregator_writes_markdown_report(db: Database, tmp_path: Path) -
     report_md = (tmp_path / f"{today.isoformat()}.md").read_text(encoding="utf-8")
     assert "# Daily Report" in report_md
     assert "directional" in report_md
-    assert "iron_condor" in report_md
+    assert "credit_vertical" in report_md
     assert GLOBAL_KEY in report_md
     assert "Circuit breaker: OK" in report_md
 

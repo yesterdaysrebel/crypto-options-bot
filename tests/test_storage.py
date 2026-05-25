@@ -91,14 +91,14 @@ async def test_insert_decision_round_trip(db: Database) -> None:
 @pytest.mark.asyncio
 async def test_trade_legs_cascade_delete(db: Database) -> None:
     async with db.session() as session:
-        trade = Trade(strategy_id="iron_condor", underlying="BTC", lots=1)
+        trade = Trade(strategy_id="credit_vertical", underlying="BTC", lots=1)
         session.add(trade)
         await session.flush()
         for i in range(4):
             session.add(
                 Leg(
                     trade_id=trade.id,
-                    strategy_id="iron_condor",
+                    strategy_id="credit_vertical",
                     leg_idx=i,
                     symbol=f"X-BTC-{i}",
                     side="buy" if i < 2 else "sell",

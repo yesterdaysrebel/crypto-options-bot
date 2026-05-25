@@ -8,9 +8,9 @@ from dataclasses import replace
 from bot.config.models import (
     DirectionalConfig,
     ExpiryBucket,
-    IronCondorConfig,
+    CreditVerticalConfig,
     Underlying,
-    VolStrangleConfig,
+    LongStraddleConfig,
 )
 from bot.data.candles import Candle
 from bot.data.chain_cache import (
@@ -254,27 +254,36 @@ def directional_cfg(**overrides) -> DirectionalConfig:
     return DirectionalConfig.model_validate(base)
 
 
-def condor_cfg(**overrides) -> IronCondorConfig:
+def credit_vertical_cfg(**overrides) -> CreditVerticalConfig:
     base = {
-        "id": "iron_condor",
+        "id": "credit_vertical",
         "enabled": True,
         "risk_weight": 0.25,
         "risk_per_trade_pct": 0.015,
-        "max_lots_cap": 3,
+        "max_lots_cap": 10,
         "underlyings": ["BTC"],
     }
     base.update(overrides)
-    return IronCondorConfig.model_validate(base)
+    return CreditVerticalConfig.model_validate(base)
 
 
-def strangle_cfg(**overrides) -> VolStrangleConfig:
+def long_straddle_cfg(**overrides) -> LongStraddleConfig:
     base = {
-        "id": "vol_strangle",
+        "id": "long_straddle",
         "enabled": True,
         "risk_weight": 0.15,
         "risk_per_trade_pct": 0.01,
-        "max_lots_cap": 2,
+        "max_lots_cap": 10,
         "underlyings": ["BTC"],
     }
     base.update(overrides)
-    return VolStrangleConfig.model_validate(base)
+    return LongStraddleConfig.model_validate(base)
+
+
+# Back-compat aliases for tests being migrated
+def condor_cfg(**overrides) -> CreditVerticalConfig:
+    return credit_vertical_cfg(**overrides)
+
+
+def strangle_cfg(**overrides) -> LongStraddleConfig:
+    return long_straddle_cfg(**overrides)
