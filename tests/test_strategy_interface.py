@@ -9,12 +9,13 @@ from __future__ import annotations
 import datetime as dt
 
 import pytest
+
 from bot.config.models import (
-    DirectionalConfig,
     CreditVerticalConfig,
+    DirectionalConfig,
+    LongStraddleConfig,
     StrategyId,
     Underlying,
-    LongStraddleConfig,
 )
 from bot.strategies import (
     Action,

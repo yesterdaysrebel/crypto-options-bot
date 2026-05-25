@@ -20,8 +20,8 @@ from enum import StrEnum
 from typing import Any
 
 from bot.config.models import (
-    DirectionalConfig,
     CreditVerticalConfig,
+    DirectionalConfig,
     LongStraddleConfig,
 )
 from bot.strategies.base import (

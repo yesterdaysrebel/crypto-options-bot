@@ -13,12 +13,12 @@ import datetime as dt
 import pytest
 
 from bot.config.models import (
+    CreditVerticalConfig,
     DirectionalConfig,
     GlobalConfig,
-    CreditVerticalConfig,
+    LongStraddleConfig,
     StrategyId,
     Underlying,
-    LongStraddleConfig,
 )
 from bot.risk import (
     CapStatus,
@@ -203,7 +203,7 @@ def test_caps_circuit_breaker_already_tripped() -> None:
 
 
 def test_directional_sizing_btc_with_contract_value() -> None:
-    """BTC mids look huge without lot_size; per-lot notional is mid × contract_value × FX."""
+    """BTC mids look huge without lot_size; per-lot notional is mid x contract_value x FX."""
     cfg = DirectionalConfig.model_validate(
         {
             "id": "directional",
@@ -225,7 +225,7 @@ def test_directional_sizing_btc_with_contract_value() -> None:
         ),
         strategy_configs={StrategyId.DIRECTIONAL: cfg},
     )
-    per_lot = 80.0 * 0.001 * 85.0  # BTC-ish mid × contract_value × INR
+    per_lot = 80.0 * 0.001 * 85.0  # BTC-ish mid x contract_value x INR
     intent = _intent_directional(premium=per_lot, lots=20)
     result = mgr.gate(intent, now_utc=_now_in_window(), accounting=_empty_accounting(), usd_inr_rate=85.0)
     assert result.approved

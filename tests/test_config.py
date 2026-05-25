@@ -7,11 +7,12 @@ import textwrap
 from pathlib import Path
 
 import pytest
+
 from bot.config import (
-    DirectionalConfig,
     CreditVerticalConfig,
-    Settings,
+    DirectionalConfig,
     LongStraddleConfig,
+    Settings,
     load_all,
     load_global_config,
     load_strategy_configs,

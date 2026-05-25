@@ -6,11 +6,11 @@ import datetime as dt
 from dataclasses import replace
 
 from bot.config.models import (
+    CreditVerticalConfig,
     DirectionalConfig,
     ExpiryBucket,
-    CreditVerticalConfig,
-    Underlying,
     LongStraddleConfig,
+    Underlying,
 )
 from bot.data.candles import Candle
 from bot.data.chain_cache import (

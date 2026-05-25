@@ -11,12 +11,12 @@ import yaml
 from loguru import logger
 
 from bot.config.models import (
+    CreditVerticalConfig,
     DirectionalConfig,
     GlobalConfig,
-    CreditVerticalConfig,
+    LongStraddleConfig,
     StrategyConfig,
     StrategyId,
-    LongStraddleConfig,
 )
 from bot.config.settings import Settings, load_settings
 

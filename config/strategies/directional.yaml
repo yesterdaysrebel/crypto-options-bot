@@ -2,7 +2,7 @@ id: directional
 enabled: true
 enabled_live: false
 risk_weight: 0.60
-# Premium budget per trade (INR cap from trade_premium_cap_usd). Lots use mid×contract_value×FX.
+# Premium budget per trade (INR cap from trade_premium_cap_usd). Lots use mid x contract_value x FX.
 # Exchange margin/leverage is not modeled; max_lots_cap limits order size (soft live start).
 risk_per_trade_pct: 0.01
 trade_premium_cap_usd: 50

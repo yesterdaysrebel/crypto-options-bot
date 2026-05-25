@@ -14,13 +14,13 @@ from enum import StrEnum
 from typing import Any, cast
 
 from bot.config.models import (
+    CreditVerticalConfig,
     DirectionalConfig,
     ExpiryBucket,
-    CreditVerticalConfig,
+    LongStraddleConfig,
     StrategyConfig,
     StrategyId,
     Underlying,
-    LongStraddleConfig,
 )
 from bot.data.candles import Candle
 from bot.data.chain_cache import ChainCache, OptionType, QuoteSnapshot, StrikeSelection
@@ -135,11 +135,11 @@ class MarketState:
     iv_percentiles: dict[tuple[Underlying, ExpiryBucket], IvPercentileResult] = field(default_factory=dict)
 
     def premium_inr(self, mid: float | None, *, lot_size: float) -> float | None:
-        """INR notional per exchange lot: ``mid_usd × contract_value × usd_inr_rate``.
+        """INR notional per exchange lot: ``mid_usd x contract_value x usd_inr_rate``.
 
         Delta India quotes option mids in USD per unit of underlying; ``lot_size`` is
         ``contract_value`` (e.g. 0.001 BTC, 0.01 ETH). Omitting ``lot_size`` made BTC
-        look ~1000× too expensive and blocked sizing.
+        look ~1000x too expensive and blocked sizing.
         """
         if mid is None or lot_size <= 0:
             return None
@@ -244,15 +244,15 @@ __all__ = [
     "Action",
     "ActionType",
     "CloseAction",
+    "CreditVerticalConfig",
     "DirectionalConfig",
     "ExitTrigger",
     "Intent",
-    "CreditVerticalConfig",
     "LegIntent",
+    "LongStraddleConfig",
     "MarketState",
     "PositionState",
     "Strategy",
     "StrategyContext",
     "TrailAction",
-    "LongStraddleConfig",
 ]

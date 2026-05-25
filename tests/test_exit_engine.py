@@ -12,14 +12,15 @@ from __future__ import annotations
 import datetime as dt
 
 import pytest
+
 from bot.config.models import StrategyId, Underlying
 from bot.data.chain_cache import QuoteSnapshot
 from bot.exits import ExitDirective, ExitEngine, ExitKind, PositionRuntime
 from bot.strategies import (
-    DirectionalStrategy,
     CreditVerticalStrategy,
-    StrategyRegistry,
+    DirectionalStrategy,
     LongStraddleStrategy,
+    StrategyRegistry,
 )
 from bot.strategies.base import ExitTrigger, MarketState, PositionState
 
