@@ -30,11 +30,8 @@ def _ist_log_record_patcher(record: Record) -> None:
     t = record["time"]
     if not isinstance(t, dt.datetime):
         return
-    if t.tzinfo is None:
-        # Loguru uses naive local time; production container sets TZ=Asia/Kolkata.
-        t = t.replace(tzinfo=IST)
-    else:
-        t = t.astimezone(IST)
+    # Loguru uses naive local time; production container sets TZ=Asia/Kolkata.
+    t = t.replace(tzinfo=IST) if t.tzinfo is None else t.astimezone(IST)
     record["time"] = t
 
 

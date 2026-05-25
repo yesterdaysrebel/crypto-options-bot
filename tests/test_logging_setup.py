@@ -9,7 +9,7 @@ from bot.risk.window import IST
 
 
 def test_ist_log_record_patcher_converts_utc_to_ist() -> None:
-    record: dict = {"time": dt.datetime(2026, 5, 25, 6, 9, 1, tzinfo=dt.timezone.utc)}
+    record: dict = {"time": dt.datetime(2026, 5, 25, 6, 9, 1, tzinfo=dt.UTC)}
     _ist_log_record_patcher(record)
     assert record["time"].tzinfo is IST
     assert record["time"] == dt.datetime(2026, 5, 25, 11, 39, 1, tzinfo=IST)
