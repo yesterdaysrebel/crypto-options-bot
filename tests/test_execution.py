@@ -62,8 +62,12 @@ def test_client_order_id_is_stable_for_same_salt() -> None:
 
 
 def test_client_order_id_changes_with_purpose_and_leg() -> None:
-    a = generate_client_order_id(strategy_id="credit_vertical", trade_id=1, leg_idx=0, purpose="entry", salt="s")
-    b = generate_client_order_id(strategy_id="credit_vertical", trade_id=1, leg_idx=1, purpose="entry", salt="s")
+    a = generate_client_order_id(
+        strategy_id="credit_vertical", trade_id=1, leg_idx=0, purpose="entry", salt="s"
+    )
+    b = generate_client_order_id(
+        strategy_id="credit_vertical", trade_id=1, leg_idx=1, purpose="entry", salt="s"
+    )
     c = generate_client_order_id(
         strategy_id="credit_vertical", trade_id=1, leg_idx=0, purpose="exit_target", salt="s"
     )

@@ -11,7 +11,6 @@ from __future__ import annotations
 import datetime as dt
 
 import pytest
-
 from bot.config.models import (
     CreditVerticalConfig,
     DirectionalConfig,
@@ -230,7 +229,7 @@ def test_directional_sizing_btc_with_contract_value() -> None:
     result = mgr.gate(intent, now_utc=_now_in_window(), accounting=_empty_accounting(), usd_inr_rate=85.0)
     assert result.approved
     assert result.sized_lots == 20
-    assert result.notes["risk_budget_inr"] == pytest.approx(50.0 * 85.0)
+    assert result.notes["risk_budget_inr"] == pytest.approx(min(67000.0 * 0.6 * 0.01, 50.0 * 85.0))
 
 
 def test_directional_sizing_floor_lots() -> None:

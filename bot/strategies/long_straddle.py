@@ -12,7 +12,6 @@ from typing import Any
 import numpy as np
 
 from bot.config.models import (
-    ExpiryBucket,
     LongStraddleConfig,
     StrategyId,
     Underlying,

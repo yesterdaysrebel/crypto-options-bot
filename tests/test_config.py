@@ -7,7 +7,6 @@ import textwrap
 from pathlib import Path
 
 import pytest
-
 from bot.config import (
     CreditVerticalConfig,
     DirectionalConfig,

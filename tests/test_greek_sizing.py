@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from bot.config.models import DeskConfig, GlobalConfig, StrategyId, Underlying, LongStraddleConfig
+from bot.config.models import DeskConfig, GlobalConfig, LongStraddleConfig, StrategyId, Underlying
 from bot.data.chain_cache import QuoteSnapshot
 from bot.desk.greek_sizing import cap_lots_by_greeks
 from bot.risk import RiskManager, TradeAccountingSnapshot
