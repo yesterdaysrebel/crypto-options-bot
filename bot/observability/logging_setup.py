@@ -27,12 +27,9 @@ def _ist_log_record_patcher(record: Record) -> None:
     Keep Loguru's ``record["time"]`` object and only convert timezone so ``{time:...}``
     format tokens still work (replacing with a bare ``datetime.now()`` breaks formatting).
     """
-    t = record["time"]
-    if not isinstance(t, dt.datetime):
-        return
+    t: dt.datetime = record["time"]
     # Loguru uses naive local time; production container sets TZ=Asia/Kolkata.
-    t = t.replace(tzinfo=IST) if t.tzinfo is None else t.astimezone(IST)
-    record["time"] = t
+    record["time"] = t.replace(tzinfo=IST) if t.tzinfo is None else t.astimezone(IST)
 
 
 def configure_logging(settings: Settings) -> None:
