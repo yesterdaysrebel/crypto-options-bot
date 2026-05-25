@@ -22,8 +22,14 @@ _LOG_FORMAT_FILE = "{time:YYYY-MM-DD HH:mm:ss} IST | {level: <8} | {name}:{funct
 
 
 def _ist_log_record_patcher(record: Record) -> None:
-    """Render all log timestamps on the IST wall clock (independent of host TZ)."""
-    record["time"] = dt.datetime.now(IST)
+    """Render all log timestamps on the IST wall clock (independent of host TZ).
+
+    Keep Loguru's ``record["time"]`` object and only convert timezone so ``{time:...}``
+    format tokens still work (replacing with a bare ``datetime.now()`` breaks formatting).
+    """
+    t: dt.datetime = record["time"]
+    # Loguru uses naive local time; production container sets TZ=Asia/Kolkata.
+    record["time"] = t.replace(tzinfo=IST) if t.tzinfo is None else t.astimezone(IST)
 
 
 def configure_logging(settings: Settings) -> None:
