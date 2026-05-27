@@ -427,7 +427,7 @@ async def _persist_entry_and_execute(
     async with db.session() as session:
         t = await session.get(Trade, trade_id)
         if t is None:
-            return
+            return False
         t.premium_paid_inr = prem
         t.credit_received_inr = cred
         t.slippage_bps = slip

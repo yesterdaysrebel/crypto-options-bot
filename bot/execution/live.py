@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import time
+from typing import Any
 
 from loguru import logger
 
@@ -162,8 +163,18 @@ class LiveExecutor(ExecutionRouter):
         )
         ioc_price = _ioc_limit_price(quote, leg.side, slip_bps, instrument.tick_size)
         if ioc_price is None:
-            fill.state = "rejected"
-            return fill
+            return LegFill(
+                symbol=leg.symbol,
+                side=LegSide(leg.side),
+                qty_requested=lots,
+                qty_filled=0,
+                avg_fill_price=None,
+                leg_idx=leg_idx,
+                client_order_id=fill.client_order_id,
+                exchange_order_id=fill.exchange_order_id,
+                state="rejected",
+                raw_response=fill.raw_response,
+            )
         ioc_payload = {
             "product_id": instrument.product_id,
             "size": lots,
@@ -391,6 +402,33 @@ def _ioc_limit_price(quote: QuoteSnapshot, side: str, slip_bps: int, tick: float
     return _round_tick(ref * (1.0 - slip), tick)
 
 
+def _as_float(v: Any, default: float = 0.0) -> float:
+    if v is None or v == "":
+        return default
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_optional_float(v: Any) -> float | None:
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _as_optional_int(v: Any) -> int | None:
+    if v is None or v == "":
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def _order_to_leg_fill(
     order: dict[str, object],
     *,
@@ -400,10 +438,9 @@ def _order_to_leg_fill(
     leg_idx: int,
     coid: str,
 ) -> LegFill:
-    filled = float(order.get("filled_size") or 0)
-    avg_raw = order.get("average_fill_price")
-    avg = float(avg_raw) if filled > 0 and avg_raw not in (None, "") else None
-    exchange_id = order.get("id")
+    filled = _as_float(order.get("filled_size"))
+    avg = _as_optional_float(order.get("average_fill_price")) if filled > 0 else None
+    exchange_order_id = _as_optional_int(order.get("id"))
     return LegFill(
         symbol=symbol,
         side=LegSide(side),
@@ -412,7 +449,7 @@ def _order_to_leg_fill(
         avg_fill_price=avg,
         leg_idx=leg_idx,
         client_order_id=coid,
-        exchange_order_id=int(exchange_id) if exchange_id is not None else None,
+        exchange_order_id=exchange_order_id,
         state=str(order.get("state", "open")),
         raw_response=dict(order),
     )
