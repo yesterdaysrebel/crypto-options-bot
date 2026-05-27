@@ -58,7 +58,8 @@ def test_client_order_id_is_stable_for_same_salt() -> None:
         strategy_id="directional", trade_id=7, leg_idx=0, purpose="entry", salt="abc12345"
     )
     assert a == b
-    assert a.startswith("directional-7-0-entry-")
+    assert len(a) <= 32
+    assert a.startswith("dr-7-0-entry-")
 
 
 def test_client_order_id_changes_with_purpose_and_leg() -> None:
@@ -72,6 +73,9 @@ def test_client_order_id_changes_with_purpose_and_leg() -> None:
         strategy_id="credit_vertical", trade_id=1, leg_idx=0, purpose="exit_target", salt="s"
     )
     assert a != b != c != a
+    assert len(a) <= 32
+    assert len(b) <= 32
+    assert len(c) <= 32
 
 
 @pytest.mark.asyncio
@@ -94,7 +98,8 @@ async def test_dry_submit_entry_directional_fills_one_leg() -> None:
     assert fill.qty_filled == 2
     assert fill.avg_fill_price is not None
     assert 95.0 < fill.avg_fill_price < 115.0
-    assert fill.client_order_id.startswith("directional-1-0-entry-")
+    assert fill.client_order_id.startswith("dr-1-0-entry-")
+    assert len(fill.client_order_id) <= 32
 
 
 @pytest.mark.asyncio
@@ -166,7 +171,8 @@ async def test_dry_submit_exit_flips_sides_and_settles() -> None:
     assert len(res.fills) == 1
     fill = res.fills[0]
     assert fill.side == LegSide.SELL  # flipped
-    assert "exit_target" in fill.client_order_id
+    assert "exitta" in fill.client_order_id
+    assert len(fill.client_order_id) <= 32
 
 
 @pytest.mark.asyncio

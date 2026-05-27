@@ -158,6 +158,21 @@ class DeltaRestClient:
         envelope = await self._request("GET", "/v2/orders", params=params, signed=True)
         return list(envelope.get("result", []))
 
+    async def get_order_by_client_id(self, client_order_id: str) -> dict[str, Any] | None:
+        """Fetch a single order by our client_order_id (singleton lookup)."""
+        envelope = await self._request(
+            "GET",
+            "/v2/orders",
+            params={"client_order_id": client_order_id},
+            signed=True,
+        )
+        result = envelope.get("result")
+        if isinstance(result, list):
+            return dict(result[0]) if result else None
+        if isinstance(result, dict):
+            return result
+        return None
+
     async def place_order(self, payload: dict[str, Any]) -> dict[str, Any]:
         envelope = await self._request("POST", "/v2/orders", json=payload, signed=True, is_order=True)
         result = envelope.get("result", {})
