@@ -3,27 +3,25 @@
 Implements the same `ExecutionRouter` interface as DryExecutor but routes through
 DeltaRestClient. Order placement:
     * Entries: post-only LIMIT at the appropriate side of the book (rounded to tick_size).
-      A timer waits up to `maker_timeout_seconds` then cancels and re-submits as IOC if
-      still unfilled.
+      Waits up to `maker_timeout_seconds`, polling the exchange; if still open, cancels
+      and re-submits as an IOC marketable limit within the slip budget.
     * Multi-leg atomicity: legs are placed concurrently; if any leg ends in `rejected`
       or partially fills past the timeout, the executor cancels remaining open legs and
       submits reduce-only close orders for already-filled legs.
     * Exits: reduce-only orders, market or stop-market depending on the trigger.
-
-This v1 implementation focuses on correctness; the latency-sensitive optimisations
-(early-cancel on book deterioration, sliding limit, etc.) are out of scope for the dry-run
-gate. Live trading is held back until PR #23 (`make go-live`).
 """
 
 from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import time
+from typing import Any
 
 from loguru import logger
 
 from bot.config.models import StrategyId
-from bot.data.chain_cache import ChainCache
+from bot.data.chain_cache import ChainCache, QuoteSnapshot
 from bot.exchange.rest import DeltaRestClient, DeltaRestError
 from bot.execution.client_id import generate_client_order_id
 from bot.execution.router import (
@@ -36,6 +34,10 @@ from bot.execution.router import (
     LegSide,
 )
 from bot.strategies.base import LegIntent
+
+_ORDER_POLL_INTERVAL_S = 1.0
+_IOC_WAIT_SECONDS = 10.0
+_TERMINAL_ORDER_STATES = frozenset({"filled", "cancelled", "rejected", "closed"})
 
 
 class LiveExecutor(ExecutionRouter):
@@ -59,9 +61,16 @@ class LiveExecutor(ExecutionRouter):
     async def submit_entry(self, req: EntryRequest) -> EntryResult:
         fills: list[LegFill] = []
         try:
+            slip_bps = self._slip_bps.get(req.strategy_id, req.slip_bps_budget)
             tasks = [
                 self._place_entry_leg(
-                    req.strategy_id, req.trade_id, idx, leg, req.lots, req.maker_timeout_seconds
+                    req.strategy_id,
+                    req.trade_id,
+                    idx,
+                    leg,
+                    req.lots,
+                    req.maker_timeout_seconds,
+                    slip_bps=slip_bps,
                 )
                 for idx, leg in enumerate(req.legs)
             ]
@@ -108,6 +117,8 @@ class LiveExecutor(ExecutionRouter):
         leg: LegIntent,
         lots: int,
         maker_timeout_seconds: float,
+        *,
+        slip_bps: int,
     ) -> LegFill:
         quote = self._chain.get_quote(leg.symbol)
         instrument = self._chain.get_instrument(leg.symbol)
@@ -125,12 +136,7 @@ class LiveExecutor(ExecutionRouter):
         coid = generate_client_order_id(
             strategy_id=strategy_id.value, trade_id=trade_id, leg_idx=leg_idx, purpose="entry"
         )
-        limit_price = _round_tick(
-            quote.bid if leg.side == "buy" else quote.ask,
-            instrument.tick_size,
-        )
-        if limit_price is None:
-            limit_price = _round_tick(quote.mid, instrument.tick_size)
+        limit_price = _maker_limit_price(quote, leg.side, instrument.tick_size)
         payload = {
             "product_id": instrument.product_id,
             "size": lots,
@@ -141,20 +147,85 @@ class LiveExecutor(ExecutionRouter):
             "client_order_id": coid,
         }
         resp = await self._rest.place_order(payload)
-        filled = float(resp.get("filled_size") or 0)
-        avg = float(resp.get("average_fill_price") or 0) if filled > 0 else None
-        return LegFill(
-            symbol=leg.symbol,
-            side=LegSide(leg.side),
-            qty_requested=lots,
-            qty_filled=filled,
-            avg_fill_price=avg,
-            leg_idx=leg_idx,
-            client_order_id=coid,
-            exchange_order_id=resp.get("id"),
-            state=str(resp.get("state", "open")),
-            raw_response=resp,
+        fill = _order_to_leg_fill(
+            resp, symbol=leg.symbol, side=leg.side, lots=lots, leg_idx=leg_idx, coid=coid
         )
+        if fill.is_complete:
+            return fill
+
+        order = await self._wait_for_order(coid, timeout_seconds=maker_timeout_seconds)
+        if order is not None:
+            fill = _order_to_leg_fill(
+                order, symbol=leg.symbol, side=leg.side, lots=lots, leg_idx=leg_idx, coid=coid
+            )
+            if fill.is_complete:
+                return fill
+
+        await self._cancel_open_order(fill)
+        ioc_coid = generate_client_order_id(
+            strategy_id=strategy_id.value, trade_id=trade_id, leg_idx=leg_idx, purpose="entry_ioc"
+        )
+        ioc_price = _ioc_limit_price(quote, leg.side, slip_bps, instrument.tick_size)
+        if ioc_price is None:
+            return LegFill(
+                symbol=leg.symbol,
+                side=LegSide(leg.side),
+                qty_requested=lots,
+                qty_filled=0,
+                avg_fill_price=None,
+                leg_idx=leg_idx,
+                client_order_id=fill.client_order_id,
+                exchange_order_id=fill.exchange_order_id,
+                state="rejected",
+                raw_response=fill.raw_response,
+            )
+        ioc_payload = {
+            "product_id": instrument.product_id,
+            "size": lots,
+            "side": leg.side,
+            "order_type": "limit_order",
+            "limit_price": str(ioc_price),
+            "time_in_force": "ioc",
+            "post_only": "false",
+            "client_order_id": ioc_coid,
+        }
+        ioc_resp = await self._rest.place_order(ioc_payload)
+        ioc_fill = _order_to_leg_fill(
+            ioc_resp, symbol=leg.symbol, side=leg.side, lots=lots, leg_idx=leg_idx, coid=ioc_coid
+        )
+        if ioc_fill.is_complete:
+            return ioc_fill
+        ioc_order = await self._wait_for_order(ioc_coid, timeout_seconds=_IOC_WAIT_SECONDS)
+        if ioc_order is not None:
+            return _order_to_leg_fill(
+                ioc_order, symbol=leg.symbol, side=leg.side, lots=lots, leg_idx=leg_idx, coid=ioc_coid
+            )
+        return ioc_fill
+
+    async def _wait_for_order(
+        self, client_order_id: str, *, timeout_seconds: float
+    ) -> dict[str, object] | None:
+        deadline = time.monotonic() + max(0.0, timeout_seconds)
+        last: dict[str, object] | None = None
+        while time.monotonic() < deadline:
+            last = await self._rest.get_order_by_client_id(client_order_id)
+            if last is None:
+                await asyncio.sleep(_ORDER_POLL_INTERVAL_S)
+                continue
+            state = str(last.get("state", ""))
+            if state in _TERMINAL_ORDER_STATES:
+                return last
+            await asyncio.sleep(_ORDER_POLL_INTERVAL_S)
+        return last
+
+    async def _cancel_open_order(self, fill: LegFill) -> None:
+        try:
+            if fill.exchange_order_id is not None:
+                await self._rest.cancel_order(order_id=int(fill.exchange_order_id))
+            elif fill.client_order_id:
+                await self._rest.cancel_order(client_order_id=fill.client_order_id)
+        except (DeltaRestError, RuntimeError) as exc:
+            logger.warning("cancel_open_order failed for {}: {}", fill.client_order_id, exc)
 
     async def submit_exit(self, req: ExitRequest) -> ExitResult:
         fills: list[LegFill] = []
@@ -308,7 +379,86 @@ class LiveExecutor(ExecutionRouter):
                     actions.append(f"cancel:{fill.symbol}")
                 except DeltaRestError as exc:
                     actions.append(f"cancel_failed:{fill.symbol}:{exc}")
+            elif fill.client_order_id and fill.client_order_id not in {"error", "missing_quote"}:
+                try:
+                    await self._rest.cancel_order(client_order_id=fill.client_order_id)
+                    actions.append(f"cancel:{fill.symbol}")
+                except (DeltaRestError, RuntimeError) as exc:
+                    actions.append(f"cancel_failed:{fill.symbol}:{exc}")
         return actions
+
+
+def _maker_limit_price(quote: QuoteSnapshot, side: str, tick: float) -> float | None:
+    limit_price = _round_tick(quote.bid if side == "buy" else quote.ask, tick)
+    if limit_price is None:
+        limit_price = _round_tick(quote.mid, tick)
+    return limit_price
+
+
+def _ioc_limit_price(quote: QuoteSnapshot, side: str, slip_bps: int, tick: float) -> float | None:
+    slip = max(0, slip_bps) / 10_000.0
+    if side == "buy":
+        ref = quote.ask if quote.ask is not None else quote.mid
+        if ref is None:
+            return None
+        return _round_tick(ref * (1.0 + slip), tick)
+    ref = quote.bid if quote.bid is not None else quote.mid
+    if ref is None:
+        return None
+    return _round_tick(ref * (1.0 - slip), tick)
+
+
+def _as_float(v: Any, default: float = 0.0) -> float:
+    if v is None or v == "":
+        return default
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_optional_float(v: Any) -> float | None:
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _as_optional_int(v: Any) -> int | None:
+    if v is None or v == "":
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _order_to_leg_fill(
+    order: dict[str, object],
+    *,
+    symbol: str,
+    side: str,
+    lots: int,
+    leg_idx: int,
+    coid: str,
+) -> LegFill:
+    filled = _as_float(order.get("filled_size"))
+    avg = _as_optional_float(order.get("average_fill_price")) if filled > 0 else None
+    exchange_order_id = _as_optional_int(order.get("id"))
+    return LegFill(
+        symbol=symbol,
+        side=LegSide(side),
+        qty_requested=lots,
+        qty_filled=filled,
+        avg_fill_price=avg,
+        leg_idx=leg_idx,
+        client_order_id=coid,
+        exchange_order_id=exchange_order_id,
+        state=str(order.get("state", "open")),
+        raw_response=dict(order),
+    )
 
 
 def _round_tick(value: float | None, tick: float) -> float | None:

@@ -83,6 +83,26 @@ from bot.strategies.base import ExitTrigger, Intent, LegIntent, TrailAction
 
 WALLET_POLL_INTERVAL_S = 30.0
 OPEN_JOURNAL_REFRESH_S = 30.0
+ENTRY_FAILURE_COOLDOWN_MINUTES = 5.0
+
+
+def _apply_directional_entry_failure_cooldown(
+    registry: StrategyRegistry,
+    intent: Intent,
+    *,
+    now: dt.datetime,
+) -> None:
+    """Pause re-entry attempts on an underlying after a live entry failure."""
+    if intent.strategy_id != StrategyId.DIRECTIONAL:
+        return
+    try:
+        strat = registry.get(StrategyId.DIRECTIONAL)
+    except KeyError:
+        return
+    if not isinstance(strat, DirectionalStrategy):
+        return
+    until = now + dt.timedelta(minutes=ENTRY_FAILURE_COOLDOWN_MINUTES)
+    strat.context.set_underlying_cooldown(intent.underlying.value, until)
 
 
 def _apply_directional_exit_cooldown(
@@ -313,7 +333,8 @@ async def _persist_entry_and_execute(
     wallet_at_entry: dict[str, Any] | None,
     quote_for: Mapping[str, QuoteSnapshot] | None = None,
     chain: ChainCache | None = None,
-) -> None:
+    maker_timeout_seconds: float = 30.0,
+) -> bool:
     now = market.now
     spot = market.spot(intent.underlying)
     atr_guess = None
@@ -379,6 +400,7 @@ async def _persist_entry_and_execute(
         lots=sizing.sized_lots,
         intent_rationale=intent.rationale,
         spread_pct_max=intent.spread_pct_max,
+        maker_timeout_seconds=maker_timeout_seconds,
     )
     result = await executor.submit_entry(req)
     if not result.success:
@@ -387,8 +409,8 @@ async def _persist_entry_and_execute(
             if t is not None:
                 t.status = TradeStatus.ERRORED.value
                 t.notes = {**(t.notes or {}), "error": result.error or "entry_failed"}
-        logger.error("dry entry failed trade_id={} err={}", trade_id, result.error)
-        return
+        logger.error("entry failed trade_id={} mode={} err={}", trade_id, mode, result.error)
+        return False
 
     net = result.total_premium_inr
     prem, cred = per_lot_premium_from_net(net, sizing.sized_lots)
@@ -405,7 +427,7 @@ async def _persist_entry_and_execute(
     async with db.session() as session:
         t = await session.get(Trade, trade_id)
         if t is None:
-            return
+            return False
         t.premium_paid_inr = prem
         t.credit_received_inr = cred
         t.slippage_bps = slip
@@ -465,6 +487,7 @@ async def _persist_entry_and_execute(
         await journal.write_open_trade(trade_id)
     except OSError as exc:
         logger.warning("open trade journal write failed: {}", exc)
+    return True
 
 
 async def _persist_trail_stop(
@@ -1035,7 +1058,7 @@ async def run_trading_engine() -> None:
                             entry_wallet = await fetch_wallet_snapshot(rest)
                         except DeltaRestError:
                             entry_wallet = None
-                    await _persist_entry_and_execute(
+                    opened = await _persist_entry_and_execute(
                         db=db,
                         executor=executor,
                         intent=intent,
@@ -1046,8 +1069,12 @@ async def run_trading_engine() -> None:
                         wallet_at_entry=entry_wallet,
                         quote_for=quote_for,
                         chain=chain,
+                        maker_timeout_seconds=exec_cfg.maker_limit_timeout_seconds,
                     )
-                    metrics.trades_opened_total.labels(intent.strategy_id.value).inc()
+                    if opened:
+                        metrics.trades_opened_total.labels(intent.strategy_id.value).inc()
+                    else:
+                        _apply_directional_entry_failure_cooldown(registry, intent, now=now)
                     accounting = await _accounting_snapshot(db)
 
             await sync_circuit_breaker_from_risk(
