@@ -15,7 +15,8 @@ entry:
   ema_slow: 21
   atr_period: 14
   prior_bars: 4
-  breakout_atr_mult: 0.25
+  # Slightly stricter breakout confirmation to reduce chop/whipsaw entries.
+  breakout_atr_mult: 0.35
   cooldown_minutes_after_underlying_stop: 45
 
 expiry:
