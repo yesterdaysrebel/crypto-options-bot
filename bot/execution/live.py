@@ -147,13 +147,17 @@ class LiveExecutor(ExecutionRouter):
             "client_order_id": coid,
         }
         resp = await self._rest.place_order(payload)
-        fill = _order_to_leg_fill(resp, symbol=leg.symbol, side=leg.side, lots=lots, leg_idx=leg_idx, coid=coid)
+        fill = _order_to_leg_fill(
+            resp, symbol=leg.symbol, side=leg.side, lots=lots, leg_idx=leg_idx, coid=coid
+        )
         if fill.is_complete:
             return fill
 
         order = await self._wait_for_order(coid, timeout_seconds=maker_timeout_seconds)
         if order is not None:
-            fill = _order_to_leg_fill(order, symbol=leg.symbol, side=leg.side, lots=lots, leg_idx=leg_idx, coid=coid)
+            fill = _order_to_leg_fill(
+                order, symbol=leg.symbol, side=leg.side, lots=lots, leg_idx=leg_idx, coid=coid
+            )
             if fill.is_complete:
                 return fill
 
@@ -198,7 +202,9 @@ class LiveExecutor(ExecutionRouter):
             )
         return ioc_fill
 
-    async def _wait_for_order(self, client_order_id: str, *, timeout_seconds: float) -> dict[str, object] | None:
+    async def _wait_for_order(
+        self, client_order_id: str, *, timeout_seconds: float
+    ) -> dict[str, object] | None:
         deadline = time.monotonic() + max(0.0, timeout_seconds)
         last: dict[str, object] | None = None
         while time.monotonic() < deadline:
