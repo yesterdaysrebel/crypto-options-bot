@@ -123,6 +123,7 @@ async def test_live_entry_waits_for_post_only_fill() -> None:
 @pytest.mark.asyncio
 async def test_live_entry_falls_back_to_ioc_when_maker_times_out() -> None:
     posts: list[dict[str, object]] = []
+    deletes: list[dict[str, object]] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
         if req.method == "POST" and req.url.path == "/v2/orders":
@@ -170,6 +171,7 @@ async def test_live_entry_falls_back_to_ioc_when_maker_times_out() -> None:
                 },
             )
         if req.method == "DELETE" and req.url.path == "/v2/orders":
+            deletes.append(json.loads(req.content.decode()))
             return httpx.Response(200, json={"success": True, "result": {}})
         return httpx.Response(404)
 
@@ -201,6 +203,9 @@ async def test_live_entry_falls_back_to_ioc_when_maker_times_out() -> None:
     assert len(posts) == 2
     assert posts[0].get("post_only") == "true"
     assert posts[1].get("time_in_force") == "ioc"
+    assert len(deletes) == 1
+    assert deletes[0].get("product_id") == 42
+    assert deletes[0].get("client_order_id", "").startswith("dr-")
 
 
 def _mock_rest(handler) -> DeltaRestClient:

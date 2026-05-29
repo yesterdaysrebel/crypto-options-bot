@@ -7,13 +7,8 @@ from pathlib import Path
 
 import pytest
 from bot.runtime.resume import ResumeService, format_report
-from bot.storage import Database, NavHistory, init_database
+from bot.storage import Database, NavHistory
 from sqlalchemy import select
-
-
-@pytest.fixture
-async def db() -> Database:
-    return await init_database(":memory:")
 
 
 @pytest.mark.asyncio

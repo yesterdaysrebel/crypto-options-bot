@@ -15,23 +15,19 @@ from bot.storage import (
     TradeStatus,
     init_database,
 )
-from sqlalchemy import event, select
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy import select
+
+from tests.conftest import enable_sqlite_fk
 
 
 @pytest.fixture
-async def db() -> Database:
+async def db():
     db_ = await init_database(":memory:")
-    _enable_sqlite_fk(db_.engine)
-    return db_
-
-
-def _enable_sqlite_fk(engine: AsyncEngine) -> None:
-    @event.listens_for(engine.sync_engine, "connect")
-    def _enable(dbapi_connection, _record):
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+    enable_sqlite_fk(db_.engine)
+    try:
+        yield db_
+    finally:
+        await db_.aclose()
 
 
 def _settings() -> Settings:

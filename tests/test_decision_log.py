@@ -7,13 +7,8 @@ from pathlib import Path
 
 import pytest
 from bot.analytics.decision_log import DecisionLogWriter, DecisionRecord
-from bot.storage import Database, Decision, DecisionKind, DecisionReason, init_database
+from bot.storage import Database, Decision, DecisionKind, DecisionReason
 from sqlalchemy import select
-
-
-@pytest.fixture
-async def db() -> Database:
-    return await init_database(":memory:")
 
 
 @pytest.mark.asyncio

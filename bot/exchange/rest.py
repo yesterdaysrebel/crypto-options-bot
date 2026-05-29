@@ -181,7 +181,11 @@ class DeltaRestClient:
         return result
 
     async def cancel_order(
-        self, *, order_id: int | None = None, client_order_id: str | None = None
+        self,
+        *,
+        order_id: int | None = None,
+        client_order_id: str | None = None,
+        product_id: int | None = None,
     ) -> dict[str, Any]:
         if order_id is None and client_order_id is None:
             raise ValueError("cancel_order requires order_id or client_order_id")
@@ -190,6 +194,8 @@ class DeltaRestClient:
             payload["id"] = order_id
         if client_order_id is not None:
             payload["client_order_id"] = client_order_id
+        if product_id is not None:
+            payload["product_id"] = product_id
         envelope = await self._request("DELETE", "/v2/orders", json=payload, signed=True, is_order=True)
         result = envelope.get("result", {})
         return result if isinstance(result, dict) else {}

@@ -219,11 +219,20 @@ class LiveExecutor(ExecutionRouter):
         return last
 
     async def _cancel_open_order(self, fill: LegFill) -> None:
+        instrument = self._chain.get_instrument(fill.symbol)
+        product_id = instrument.product_id if instrument is not None else None
         try:
             if fill.exchange_order_id is not None:
-                await self._rest.cancel_order(order_id=int(fill.exchange_order_id))
+                await self._rest.cancel_order(
+                    order_id=int(fill.exchange_order_id),
+                    client_order_id=fill.client_order_id or None,
+                    product_id=product_id,
+                )
             elif fill.client_order_id:
-                await self._rest.cancel_order(client_order_id=fill.client_order_id)
+                await self._rest.cancel_order(
+                    client_order_id=fill.client_order_id,
+                    product_id=product_id,
+                )
         except (DeltaRestError, RuntimeError) as exc:
             logger.warning("cancel_open_order failed for {}: {}", fill.client_order_id, exc)
 
@@ -306,11 +315,14 @@ class LiveExecutor(ExecutionRouter):
         new_stop_price: float,
         client_order_id: str,
     ) -> dict[str, object]:
+        instrument = self._chain.get_instrument(symbol)
         try:
-            await self._rest.cancel_order(client_order_id=client_order_id)
+            await self._rest.cancel_order(
+                client_order_id=client_order_id,
+                product_id=instrument.product_id if instrument is not None else None,
+            )
         except DeltaRestError:
             logger.warning("update_stop: prior stop {} not cancellable, proceeding", client_order_id)
-        instrument = self._chain.get_instrument(symbol)
         if instrument is None:
             return {"ok": False, "trade_id": trade_id, "error": "missing_instrument"}
         new_coid = generate_client_order_id(
@@ -351,8 +363,8 @@ class LiveExecutor(ExecutionRouter):
     async def _rollback(self, trade_id: int, fills: list[LegFill]) -> list[str]:
         actions: list[str] = []
         for fill in fills:
+            instrument = self._chain.get_instrument(fill.symbol)
             if fill.qty_filled > 0:
-                instrument = self._chain.get_instrument(fill.symbol)
                 if instrument is None:
                     continue
                 flipped = "sell" if fill.side == LegSide.BUY else "buy"
@@ -375,13 +387,20 @@ class LiveExecutor(ExecutionRouter):
                     actions.append(f"rollback_close_failed:{fill.symbol}:{exc}")
             elif fill.exchange_order_id is not None:
                 try:
-                    await self._rest.cancel_order(order_id=fill.exchange_order_id)
+                    await self._rest.cancel_order(
+                        order_id=int(fill.exchange_order_id),
+                        client_order_id=fill.client_order_id or None,
+                        product_id=instrument.product_id if instrument is not None else None,
+                    )
                     actions.append(f"cancel:{fill.symbol}")
                 except DeltaRestError as exc:
                     actions.append(f"cancel_failed:{fill.symbol}:{exc}")
             elif fill.client_order_id and fill.client_order_id not in {"error", "missing_quote"}:
                 try:
-                    await self._rest.cancel_order(client_order_id=fill.client_order_id)
+                    await self._rest.cancel_order(
+                        client_order_id=fill.client_order_id,
+                        product_id=instrument.product_id if instrument is not None else None,
+                    )
                     actions.append(f"cancel:{fill.symbol}")
                 except (DeltaRestError, RuntimeError) as exc:
                     actions.append(f"cancel_failed:{fill.symbol}:{exc}")
