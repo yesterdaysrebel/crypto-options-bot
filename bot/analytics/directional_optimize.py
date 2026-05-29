@@ -127,7 +127,11 @@ def load_filled_trades_from_db(
         fv: dict[str, Any] = {}
         if r["feature_vector"]:
             try:
-                fv = json.loads(r["feature_vector"]) if isinstance(r["feature_vector"], str) else dict(r["feature_vector"])
+                fv = (
+                    json.loads(r["feature_vector"])
+                    if isinstance(r["feature_vector"], str)
+                    else dict(r["feature_vector"])
+                )
             except (TypeError, json.JSONDecodeError):
                 fv = {}
         sym = str(r["symbol"])
@@ -212,8 +216,11 @@ async def load_filled_trades_from_exchange(
         exit_o = None
         for o in orders_sorted:
             coid = str(o.get("client_order_id") or "")
-            if entry_o is None and "exit" not in coid and "trail" not in coid and (
-                "entry" in coid or "rollback" not in coid
+            if (
+                entry_o is None
+                and "exit" not in coid
+                and "trail" not in coid
+                and ("entry" in coid or "rollback" not in coid)
             ):
                 entry_o = o
             if "exit" in coid or "rollback" in coid:
@@ -466,14 +473,18 @@ def _suggestions(paths: list[TradePathAnalysis]) -> list[str]:
             "Widen `underlying_atr_mult_stop` to 1.25-1.5 if whipsaw stops dominate, "
             "or tighten breakout so entries aren't at exhaustion moves."
         )
-    early_prem = [p for p in paths if p.premium_dd_hit_first_bar is not None and p.premium_dd_hit_first_bar <= 2]
+    early_prem = [
+        p for p in paths if p.premium_dd_hit_first_bar is not None and p.premium_dd_hit_first_bar <= 2
+    ]
     if len(early_prem) >= max(1, int(0.5 * len(losses))):
         suggestions.append(
             f"**Fast drawdown:** {len(early_prem)} trades hit 50% premium DD within 30m on option candles. "
             "Reduce size (`max_lots_cap` / risk%) or skip entries when `spread_pct` is elevated."
         )
     if not suggestions:
-        suggestions.append("Sample is small or mixed; collect more closed trades before large parameter changes.")
+        suggestions.append(
+            "Sample is small or mixed; collect more closed trades before large parameter changes."
+        )
     return suggestions
 
 

@@ -78,9 +78,7 @@ def optimize_directional(
         typer.echo(f"DB not found: {db_path}", err=True)
         raise typer.Exit(code=1)
     out_path = Path(output) if output else None
-    text = asyncio.run(
-        run_optimization(db_path, since=since, until=until, output=out_path)
-    )
+    text = asyncio.run(run_optimization(db_path, since=since, until=until, output=out_path))
     if out_path is None:
         typer.echo(text)
     else:

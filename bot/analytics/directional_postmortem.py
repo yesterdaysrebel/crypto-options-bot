@@ -437,8 +437,10 @@ def format_report(report: PostmortemReport) -> str:
             "| trade | entry (UTC) | und | opt | strike | prem INR | status | error | "
             "spot | 15m | 30m | 60m | 120m | MFE% | MAE% | 60m verdict |"
         )
-        lines.append("|------:|---------------|-----|-----|-------:|---------:|--------|-------|"
-                     "-----:|----:|----:|----:|-----:|-----:|-----:|------------|")
+        lines.append(
+            "|------:|---------------|-----|-----|-------:|---------:|--------|-------|"
+            "-----:|----:|----:|----:|-----:|-----:|-----:|------------|"
+        )
         for row in report.movement_rows:
             a = row.attempt
             r1 = row.ret_pct_at_bar.get(1)
