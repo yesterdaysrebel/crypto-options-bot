@@ -49,6 +49,45 @@ def go_live(
         raise typer.Exit(code=1)
 
 
+def _db_path_from_settings(settings: Settings) -> Path:
+    db_url = str(settings.db_url)
+    if db_url.startswith("sqlite:////"):
+        return Path("/" + db_url.removeprefix("sqlite:////"))
+    if db_url.startswith("sqlite:///"):
+        return Path(db_url.removeprefix("sqlite:///"))
+    return Path(db_url)
+
+
+@cli.command("optimize-directional")
+def optimize_directional(
+    since: str | None = typer.Option(None, help="UTC start, e.g. 2026-05-14"),
+    until: str | None = typer.Option(None, help="UTC end (exclusive)"),
+    output: str | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Markdown report path (default: stdout)",
+    ),
+) -> None:
+    """Analyze filled directional trades vs Delta prices for strategy tuning (excludes errored)."""
+    from bot.analytics.directional_optimize import run_optimization
+
+    settings = Settings()
+    db_path = _db_path_from_settings(settings)
+    if not db_path.is_file():
+        typer.echo(f"DB not found: {db_path}", err=True)
+        raise typer.Exit(code=1)
+    out_path = Path(output) if output else None
+    text = asyncio.run(
+        run_optimization(db_path, since=since, until=until, output=out_path)
+    )
+    if out_path is None:
+        typer.echo(text)
+    else:
+        typer.echo(f"Wrote {out_path}")
+    raise typer.Exit(code=0)
+
+
 @cli.command("analyze-directional")
 def analyze_directional(
     since: str | None = typer.Option(None, help="UTC start date/time, e.g. 2026-05-27"),
@@ -68,13 +107,7 @@ def analyze_directional(
     from bot.analytics.directional_postmortem import run_postmortem
 
     settings = Settings()
-    db_url = str(settings.db_url)
-    if db_url.startswith("sqlite:////"):
-        db_path = Path("/" + db_url.removeprefix("sqlite:////"))
-    elif db_url.startswith("sqlite:///"):
-        db_path = Path(db_url.removeprefix("sqlite:///"))
-    else:
-        db_path = Path(db_url)
+    db_path = _db_path_from_settings(settings)
     if not db_path.is_file():
         typer.echo(f"DB not found: {db_path}", err=True)
         raise typer.Exit(code=1)
