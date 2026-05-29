@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import typer
 
@@ -46,6 +47,55 @@ def go_live(
     typer.echo(format_report(report))
     if not report.passed:
         raise typer.Exit(code=1)
+
+
+@cli.command("analyze-directional")
+def analyze_directional(
+    since: str | None = typer.Option(None, help="UTC start date/time, e.g. 2026-05-27"),
+    until: str | None = typer.Option(None, help="UTC end date/time (exclusive)"),
+    mode: str = typer.Option("live", help="Trade mode filter"),
+    status: str | None = typer.Option(None, help="Trade status filter, e.g. errored"),
+    dedupe: bool = typer.Option(True, help="Collapse retry-storm duplicates into 15m buckets"),
+    max_samples: int = typer.Option(40, help="Max deduped samples to fetch candles for"),
+    output: str | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Write markdown report to this path (default: print to stdout)",
+    ),
+) -> None:
+    """Analyze directional attempts vs Delta underlying price action."""
+    from bot.analytics.directional_postmortem import run_postmortem
+
+    settings = Settings()
+    db_url = str(settings.db_url)
+    if db_url.startswith("sqlite:////"):
+        db_path = Path("/" + db_url.removeprefix("sqlite:////"))
+    elif db_url.startswith("sqlite:///"):
+        db_path = Path(db_url.removeprefix("sqlite:///"))
+    else:
+        db_path = Path(db_url)
+    if not db_path.is_file():
+        typer.echo(f"DB not found: {db_path}", err=True)
+        raise typer.Exit(code=1)
+    out_path = Path(output) if output else None
+    text = asyncio.run(
+        run_postmortem(
+            db_path,
+            since=since,
+            until=until,
+            mode=mode,
+            status=status,
+            dedupe=dedupe,
+            max_samples=max_samples,
+            output=out_path,
+        )
+    )
+    if out_path is None:
+        typer.echo(text)
+    else:
+        typer.echo(f"Wrote {out_path}")
+    raise typer.Exit(code=0)
 
 
 @cli.command()
