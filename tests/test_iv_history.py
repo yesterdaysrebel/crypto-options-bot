@@ -8,16 +8,8 @@ import pytest
 from bot.config.models import ExpiryBucket, Underlying
 from bot.data.chain_cache import ChainCache, QuoteSnapshot, synthesise_quotes
 from bot.desk.iv_history import IvHistoryStore
-from bot.storage.db import init_database
 from bot.storage.models import IvSnapshot
 from sqlalchemy import select
-
-
-@pytest.fixture
-async def db():
-    database = await init_database(":memory:")
-    yield database
-    await database.aclose()
 
 
 def _seed_chain_with_iv(

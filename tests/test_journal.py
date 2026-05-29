@@ -16,13 +16,7 @@ from bot.storage import (
     Signal,
     Trade,
     TradeStatus,
-    init_database,
 )
-
-
-@pytest.fixture
-async def db() -> Database:
-    return await init_database(":memory:")
 
 
 async def _seed_closed_directional_trade(db: Database) -> int:

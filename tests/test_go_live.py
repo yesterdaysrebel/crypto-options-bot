@@ -13,13 +13,7 @@ from bot.storage import (
     NavHistory,
     Trade,
     TradeStatus,
-    init_database,
 )
-
-
-@pytest.fixture
-async def db() -> Database:
-    return await init_database(":memory:")
 
 
 def _write_strategy_yaml(config_dir: Path, strategy_id: str, **overrides: object) -> Path:

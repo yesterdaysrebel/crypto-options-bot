@@ -11,12 +11,7 @@ import pytest
 from bot.observability.metrics import MetricsRegistry, TextfileCollector
 from bot.observability.server import MetricsServer
 from bot.observability.status import render_status_dashboard
-from bot.storage import DailyPnl, Database, NavHistory, Trade, TradeStatus, init_database
-
-
-@pytest.fixture
-async def db() -> Database:
-    return await init_database(":memory:")
+from bot.storage import DailyPnl, Database, NavHistory, Trade, TradeStatus
 
 
 def test_metrics_registry_renders_prometheus_text() -> None:

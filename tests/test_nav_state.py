@@ -8,7 +8,6 @@ import pytest
 from bot.risk.caps import NavTracker
 from bot.risk.window import IST, india_options_session_close_utc, utc_to_ist
 from bot.runtime.nav_state import load_nav_tracker, maybe_roll_ist_trading_day
-from bot.storage.db import Database, get_database
 from bot.storage.models import NavHistory, Trade, TradeStatus
 
 
@@ -26,14 +25,6 @@ def test_india_options_session_close_utc_after_close_rolls_to_next_day() -> None
     now = dt.datetime(2026, 5, 15, 12, 30, 0)
     close = india_options_session_close_utc(now)
     assert utc_to_ist(close).date() == dt.date(2026, 5, 16)
-
-
-@pytest.fixture
-async def db() -> Database:
-    database = get_database("sqlite+aiosqlite:///:memory:")
-    await database.create_all()
-    yield database
-    await database.aclose()
 
 
 @pytest.mark.asyncio

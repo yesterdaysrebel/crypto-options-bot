@@ -7,13 +7,8 @@ from pathlib import Path
 
 import pytest
 from bot.analytics.daily import GLOBAL_KEY, DailyAggregator
-from bot.storage import DailyPnl, Database, NavHistory, Trade, TradeStatus, init_database
+from bot.storage import DailyPnl, Database, NavHistory, Trade, TradeStatus
 from sqlalchemy import select
-
-
-@pytest.fixture
-async def db() -> Database:
-    return await init_database(":memory:")
 
 
 async def _seed_trades(db: Database, trading_date: dt.date) -> None:

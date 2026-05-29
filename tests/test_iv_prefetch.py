@@ -16,6 +16,13 @@ from tests.strategy_fixtures import make_chain
 @pytest.mark.asyncio
 async def test_prefetch_returns_percentile_when_history_warm() -> None:
     db = await init_database(":memory:")
+    try:
+        await _run_prefetch_returns_percentile_when_history_warm(db)
+    finally:
+        await db.aclose()
+
+
+async def _run_prefetch_returns_percentile_when_history_warm(db) -> None:
     iv_store = IvHistoryStore(db, min_samples=3)
     now = dt.datetime(2026, 5, 12, 4, 0, 0)
     spot = 100_000.0
