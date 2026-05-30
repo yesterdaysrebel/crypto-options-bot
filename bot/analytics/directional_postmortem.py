@@ -800,11 +800,7 @@ def format_open_positions_report(
             )
         if r.adverse_move is not None and r.underlying_sl_atr is not None:
             status = "**AT/ PAST underlying stop**" if r.at_underlying_sl else "not yet at underlying stop"
-            room_s = (
-                f"{r.underlying_sl_room:.2f}"
-                if r.underlying_sl_room is not None
-                else "?"
-            )
+            room_s = f"{r.underlying_sl_room:.2f}" if r.underlying_sl_room is not None else "?"
             lines.append(
                 f"- **Underlying stop** ({r.option_type}): adverse move **{r.adverse_move:.2f}** "
                 f"vs limit **{r.underlying_sl_atr:.2f}** (1 x ATR at entry). Room: **{room_s}** - {status}."

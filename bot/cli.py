@@ -147,9 +147,7 @@ def analyze_open(
         typer.echo(f"DB not found: {db_path}", err=True)
         raise typer.Exit(code=1)
     out_path = Path(output) if output else None
-    text = asyncio.run(
-        run_open_positions_analysis(db_path, config_dir=settings.config_dir, output=out_path)
-    )
+    text = asyncio.run(run_open_positions_analysis(db_path, config_dir=settings.config_dir, output=out_path))
     if out_path is None:
         typer.echo(text)
     else:
