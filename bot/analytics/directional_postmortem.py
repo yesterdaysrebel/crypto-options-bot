@@ -569,14 +569,14 @@ def _explain_entry_from_features(fv: dict[str, Any], option_type: str | None) ->
     parts: list[str] = []
     if option_type == "call" or long_setup:
         parts.append(
-            "**Long breakout (call):** 15m EMA9>EMA21 by ≥ breakout×ATR and close above 4-bar high + threshold."
+            "**Long breakout (call):** 15m EMA9>EMA21 by >= breakout x ATR and close above 4-bar high + threshold."
         )
     elif option_type == "put" or short_setup:
         parts.append(
-            "**Short breakout (put):** 15m EMA9<EMA21 by ≥ breakout×ATR and close below 4-bar low − threshold."
+            "**Short breakout (put):** 15m EMA9<EMA21 by >= breakout x ATR and close below 4-bar low - threshold."
         )
     if ema_sep is not None and threshold is not None:
-        parts.append(f"At signal: ema_sep={ema_sep:.2f}, threshold={threshold:.2f} (≈0.35×ATR).")
+        parts.append(f"At signal: ema_sep={ema_sep:.2f}, threshold={threshold:.2f} (~0.35 x ATR).")
     if atr_v is not None:
         parts.append(f"ATR(14)={atr_v:.2f}.")
     if close is not None and prior_high is not None and prior_low is not None:
@@ -596,10 +596,7 @@ def _underlying_sl_metrics(
 ) -> tuple[float, float, float, bool]:
     """adverse_move, sl_threshold, room_until_sl (negative = past SL), at_sl."""
     threshold = atr_mult * entry_atr
-    if option_type == "call":
-        adverse = entry_spot - spot_now
-    else:
-        adverse = spot_now - entry_spot
+    adverse = entry_spot - spot_now if option_type == "call" else spot_now - entry_spot
     room = threshold - adverse
     return adverse, threshold, room, adverse >= threshold
 
@@ -810,7 +807,7 @@ def format_open_positions_report(
             )
             lines.append(
                 f"- **Underlying stop** ({r.option_type}): adverse move **{r.adverse_move:.2f}** "
-                f"vs limit **{r.underlying_sl_atr:.2f}** (1×ATR at entry). Room: **{room_s}** — {status}."
+                f"vs limit **{r.underlying_sl_atr:.2f}** (1 x ATR at entry). Room: **{room_s}** - {status}."
             )
         if r.option_mark is not None and r.exchange_entry_price is not None:
             dd_s = f"{r.premium_dd_pct:.1f}%" if r.premium_dd_pct is not None else "?"

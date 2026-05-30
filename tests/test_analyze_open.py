@@ -6,7 +6,7 @@ from bot.analytics.directional_postmortem import _underlying_sl_metrics
 
 
 def test_call_underlying_sl_past_when_spot_drops_one_atr() -> None:
-    adverse, threshold, room, at_sl = _underlying_sl_metrics("call", 100.0, 500.0, 99.0, 1.0)
+    adverse, threshold, _room, at_sl = _underlying_sl_metrics("call", 100.0, 500.0, 99.0, 1.0)
     assert adverse == 1.0
     assert threshold == 500.0
     assert at_sl is False
