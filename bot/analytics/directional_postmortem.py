@@ -486,6 +486,385 @@ def format_report(report: PostmortemReport) -> str:
     return "\n".join(lines)
 
 
+@dataclass
+class OpenPositionRow:
+    product_symbol: str
+    size: float
+    exchange_entry_price: float | None
+    unrealized_pnl: float | None
+    trade_id: int | None
+    trade_status: str | None
+    trade_error: str | None
+    entry_ts: dt.datetime | None
+    underlying: str | None
+    option_type: str | None
+    signal_spot: float | None
+    signal_atr: float | None
+    entry_reason: str
+    execution_note: str
+    current_spot: float | None
+    adverse_move: float | None
+    underlying_sl_atr: float | None
+    underlying_sl_room: float | None
+    at_underlying_sl: bool
+    option_mark: float | None
+    premium_dd_pct: float | None
+    at_premium_sl: bool
+    exchange_orders: list[dict[str, Any]]
+
+
+def find_trade_for_symbol(db_path: Path, product_symbol: str) -> dict[str, Any] | None:
+    """Best-match directional trade row for an open Delta contract symbol."""
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """
+        SELECT t.id, t.entry_ts, t.status, t.mode, t.notes,
+               s.intended_symbol, s.intended_strike, s.intended_premium_inr, s.feature_vector
+        FROM trades t
+        LEFT JOIN signals s ON s.id = t.signal_id
+        WHERE t.strategy_id = 'directional'
+          AND s.intended_symbol = ?
+        ORDER BY t.entry_ts DESC
+        LIMIT 1
+        """,
+        (product_symbol,),
+    ).fetchall()
+    if not rows:
+        # Strike-level fallback: C-BTC-73800-290526 vs near matches
+        parts = product_symbol.split("-")
+        if len(parts) >= 3:
+            und, strike = parts[1], parts[2]
+            like = f"%-{und}-{strike}-%"
+            rows = conn.execute(
+                """
+                SELECT t.id, t.entry_ts, t.status, t.mode, t.notes,
+                       s.intended_symbol, s.intended_strike, s.intended_premium_inr, s.feature_vector
+                FROM trades t
+                LEFT JOIN signals s ON s.id = t.signal_id
+                WHERE t.strategy_id = 'directional'
+                  AND s.intended_symbol LIKE ?
+                ORDER BY t.entry_ts DESC
+                LIMIT 1
+                """,
+                (like,),
+            ).fetchall()
+    conn.close()
+    return dict(rows[0]) if rows else None
+
+
+def _explain_entry_from_features(fv: dict[str, Any], option_type: str | None) -> str:
+    ema_sep = _as_float(fv.get("ema_sep"))
+    threshold = _as_float(fv.get("threshold"))
+    atr_v = _as_float(fv.get("atr"))
+    close = _as_float(fv.get("latest_close"))
+    prior_high = _as_float(fv.get("prior_high"))
+    prior_low = _as_float(fv.get("prior_low"))
+    long_setup = fv.get("long_setup")
+    short_setup = fv.get("short_setup")
+    if long_setup is None and ema_sep is not None and threshold is not None:
+        long_setup = ema_sep > threshold
+    if short_setup is None and ema_sep is not None and threshold is not None:
+        short_setup = ema_sep < -threshold
+    parts: list[str] = []
+    if option_type == "call" or long_setup:
+        parts.append(
+            "**Long breakout (call):** 15m EMA9>EMA21 by ≥ breakout×ATR and close above 4-bar high + threshold."
+        )
+    elif option_type == "put" or short_setup:
+        parts.append(
+            "**Short breakout (put):** 15m EMA9<EMA21 by ≥ breakout×ATR and close below 4-bar low − threshold."
+        )
+    if ema_sep is not None and threshold is not None:
+        parts.append(f"At signal: ema_sep={ema_sep:.2f}, threshold={threshold:.2f} (≈0.35×ATR).")
+    if atr_v is not None:
+        parts.append(f"ATR(14)={atr_v:.2f}.")
+    if close is not None and prior_high is not None and prior_low is not None:
+        parts.append(f"Close={close:.2f}, prior_high={prior_high:.2f}, prior_low={prior_low:.2f}.")
+    iv_p = fv.get("iv_percentile")
+    if iv_p is not None:
+        parts.append(f"IV percentile={iv_p}.")
+    return " ".join(parts) if parts else "No feature_vector stored on signal."
+
+
+def _underlying_sl_metrics(
+    option_type: str,
+    entry_spot: float,
+    entry_atr: float,
+    spot_now: float,
+    atr_mult: float,
+) -> tuple[float, float, float, bool]:
+    """adverse_move, sl_threshold, room_until_sl (negative = past SL), at_sl."""
+    threshold = atr_mult * entry_atr
+    if option_type == "call":
+        adverse = entry_spot - spot_now
+    else:
+        adverse = spot_now - entry_spot
+    room = threshold - adverse
+    return adverse, threshold, room, adverse >= threshold
+
+
+async def build_open_positions_report(
+    db_path: Path,
+    *,
+    config_dir: Path,
+    premium_dd_pct: float = 0.50,
+    underlying_atr_mult: float = 1.0,
+) -> tuple[list[OpenPositionRow], list[str]]:
+    from bot.config.loader import load_strategy_configs
+    from bot.config.models import DirectionalConfig, StrategyId
+
+    for cfg in load_strategy_configs(config_dir):
+        if cfg.id == StrategyId.DIRECTIONAL and isinstance(cfg, DirectionalConfig):
+            premium_dd_pct = cfg.exits.premium_drawdown_pct
+            underlying_atr_mult = cfg.exits.underlying_atr_mult_stop
+            break
+
+    settings = Settings()
+    rows: list[OpenPositionRow] = []
+    errors: list[str] = []
+
+    async with DeltaRestClient(settings) as rest:
+        try:
+            positions = await rest.get_positions()
+        except DeltaRestError as exc:
+            return [], [f"get_positions: {exc}"]
+
+        open_pos = [p for p in positions if float(p.get("size") or 0) != 0]
+        if not open_pos:
+            return [], []
+
+        for p in open_pos:
+            sym = str(p.get("product_symbol") or "")
+            size = float(p.get("size") or 0)
+            ex_entry = _as_float(p.get("entry_price"))
+            upnl = _as_float(p.get("unrealized_pnl"))
+            opt = _option_type_from_symbol(sym)
+            und = "BTC" if "BTC" in sym else "ETH" if "ETH" in sym else None
+
+            trade_row = find_trade_for_symbol(db_path, sym) if sym else None
+            trade_id: int | None = None
+            trade_status: str | None = None
+            trade_error: str | None = None
+            entry_ts: dt.datetime | None = None
+            fv: dict[str, Any] = {}
+            signal_spot: float | None = None
+            signal_atr: float | None = None
+            if trade_row:
+                trade_id = int(trade_row["id"])
+                trade_status = str(trade_row["status"])
+                entry_ts = _parse_ts(str(trade_row["entry_ts"]))
+                notes_raw = trade_row.get("notes")
+                if notes_raw:
+                    try:
+                        notes = json.loads(notes_raw) if isinstance(notes_raw, str) else dict(notes_raw)
+                        trade_error = notes.get("error") if isinstance(notes.get("error"), str) else None
+                    except (TypeError, json.JSONDecodeError):
+                        pass
+                fv_raw = trade_row.get("feature_vector")
+                if fv_raw:
+                    try:
+                        fv = json.loads(fv_raw) if isinstance(fv_raw, str) else dict(fv_raw)
+                    except (TypeError, json.JSONDecodeError):
+                        fv = {}
+                signal_spot = _as_float(fv.get("spot"))
+                signal_atr = _as_float(fv.get("atr"))
+
+            entry_reason = _explain_entry_from_features(fv, opt)
+            if trade_status == "errored":
+                execution_note = (
+                    "DB trade is **errored** (usually `partial_fill_rolled_back`): bot is **not** "
+                    "running `manage()` stops on this position. You must close on Delta or adopt it manually."
+                )
+            elif trade_status == "open":
+                execution_note = "DB trade is **open** — bot should manage stops if the process is healthy."
+            else:
+                execution_note = (
+                    "No matching DB trade or status is not open — position may be orphan / untracked."
+                )
+
+            current_spot: float | None = None
+            u_sym = UNDERLYING_CANDLE_SYMBOL.get(und or "")
+            if u_sym:
+                try:
+                    ticker = await rest.get_ticker(u_sym)
+                    current_spot = _as_float(ticker.get("mark_price") or ticker.get("spot_price"))
+                except DeltaRestError as exc:
+                    errors.append(f"ticker {u_sym}: {exc}")
+
+            adverse = sl_atr = room = None
+            at_und_sl = False
+            if (
+                opt in ("call", "put")
+                and signal_spot is not None
+                and signal_atr is not None
+                and current_spot is not None
+            ):
+                adverse, sl_atr, room, at_und_sl = _underlying_sl_metrics(
+                    opt, signal_spot, signal_atr, current_spot, underlying_atr_mult
+                )
+
+            option_mark: float | None = None
+            premium_dd: float | None = None
+            at_prem_sl = False
+            if sym:
+                try:
+                    ot = await rest.get_ticker(sym)
+                    option_mark = _as_float(ot.get("mark_price") or ot.get("close"))
+                except DeltaRestError as exc:
+                    errors.append(f"option ticker {sym}: {exc}")
+            prem_entry = ex_entry
+            if prem_entry is not None and prem_entry > 0 and option_mark is not None:
+                premium_dd = (prem_entry - option_mark) / prem_entry
+                at_prem_sl = option_mark <= prem_entry * (1.0 - premium_dd_pct)
+
+            orders: list[dict[str, Any]] = []
+            if trade_id is not None:
+                try:
+                    orders = await fetch_delta_orders_for_trade(rest, trade_id)
+                except DeltaRestError as exc:
+                    errors.append(f"orders trade {trade_id}: {exc}")
+
+            rows.append(
+                OpenPositionRow(
+                    product_symbol=sym,
+                    size=size,
+                    exchange_entry_price=ex_entry,
+                    unrealized_pnl=upnl,
+                    trade_id=trade_id,
+                    trade_status=trade_status,
+                    trade_error=trade_error,
+                    entry_ts=entry_ts,
+                    underlying=und,
+                    option_type=opt,
+                    signal_spot=signal_spot,
+                    signal_atr=signal_atr,
+                    entry_reason=entry_reason,
+                    execution_note=execution_note,
+                    current_spot=current_spot,
+                    adverse_move=adverse,
+                    underlying_sl_atr=sl_atr,
+                    underlying_sl_room=room,
+                    at_underlying_sl=at_und_sl,
+                    option_mark=option_mark,
+                    premium_dd_pct=premium_dd * 100.0 if premium_dd is not None else None,
+                    at_premium_sl=at_prem_sl,
+                    exchange_orders=orders,
+                )
+            )
+
+    return rows, errors
+
+
+def format_open_positions_report(
+    rows: list[OpenPositionRow],
+    errors: list[str],
+    *,
+    premium_dd_pct: float = 0.50,
+    underlying_atr_mult: float = 1.0,
+) -> str:
+    lines = [
+        "# Open Delta positions — why entered & stop proximity",
+        "",
+        "Links live exchange size to SQLite signal + configured directional stops. "
+        "**Errored** trades are not managed by the bot.",
+        "",
+        f"Config refs: `underlying_atr_mult_stop={underlying_atr_mult}`, "
+        f"`premium_drawdown_pct={premium_dd_pct}`.",
+        "",
+    ]
+    if not rows:
+        lines.append("No open positions (size ≠ 0) on Delta.\n")
+    for r in rows:
+        lines.append(f"## {r.product_symbol} (size={r.size})")
+        lines.append("")
+        if r.trade_id is not None:
+            lines.append(
+                f"- **DB trade** `{r.trade_id}` | status=`{r.trade_status}` | "
+                f"error=`{r.trade_error or '—'}` | entry={r.entry_ts}"
+            )
+        else:
+            lines.append("- **DB trade:** no matching `signals.intended_symbol` row")
+        lines.append(f"- **Exchange:** entry_price={r.exchange_entry_price} uPnL={r.unrealized_pnl}")
+        lines.append("")
+        lines.append("### Why the bot entered")
+        lines.append("")
+        lines.append(r.entry_reason)
+        lines.append("")
+        lines.append("### Execution / why stops may not fire")
+        lines.append("")
+        lines.append(r.execution_note)
+        lines.append("")
+        lines.append("### Stop proximity (bot rules, approximate)")
+        lines.append("")
+        if r.signal_spot is not None and r.current_spot is not None:
+            lines.append(
+                f"- Spot at signal: **{r.signal_spot:.2f}** → now **{r.current_spot:.2f}** ({r.underlying})"
+            )
+        if r.adverse_move is not None and r.underlying_sl_atr is not None:
+            status = "**AT/ PAST underlying stop**" if r.at_underlying_sl else "not yet at underlying stop"
+            room_s = (
+                f"{r.underlying_sl_room:.2f}"
+                if r.underlying_sl_room is not None
+                else "?"
+            )
+            lines.append(
+                f"- **Underlying stop** ({r.option_type}): adverse move **{r.adverse_move:.2f}** "
+                f"vs limit **{r.underlying_sl_atr:.2f}** (1×ATR at entry). Room: **{room_s}** — {status}."
+            )
+        if r.option_mark is not None and r.exchange_entry_price is not None:
+            dd_s = f"{r.premium_dd_pct:.1f}%" if r.premium_dd_pct is not None else "?"
+            prem_status = "**AT/ PAST premium stop**" if r.at_premium_sl else "not yet at premium stop"
+            lines.append(
+                f"- **Premium stop** (50% DD on option mark): entry **{r.exchange_entry_price}** "
+                f"mark **{r.option_mark}** DD **{dd_s}** — {prem_status}."
+            )
+        lines.append("")
+        if r.exchange_orders:
+            lines.append("### Exchange orders (`dr-*`)")
+            for o in r.exchange_orders:
+                lines.append(
+                    f"- `{o.get('client_order_id')}` state={o.get('state')} "
+                    f"filled={o.get('filled_size')} avg={o.get('average_fill_price')}"
+                )
+            lines.append("")
+        lines.append("---")
+        lines.append("")
+
+    if errors:
+        lines.append("## Warnings")
+        for e in errors[:15]:
+            lines.append(f"- {e}")
+    return "\n".join(lines)
+
+
+async def run_open_positions_analysis(
+    db_path: Path,
+    *,
+    config_dir: Path,
+    output: Path | None,
+) -> str:
+    from bot.config.loader import load_strategy_configs
+    from bot.config.models import DirectionalConfig, StrategyId
+
+    prem_dd = 0.50
+    und_mult = 1.0
+    for cfg in load_strategy_configs(config_dir):
+        if cfg.id == StrategyId.DIRECTIONAL and isinstance(cfg, DirectionalConfig):
+            prem_dd = cfg.exits.premium_drawdown_pct
+            und_mult = cfg.exits.underlying_atr_mult_stop
+            break
+
+    rows, errors = await build_open_positions_report(
+        db_path, config_dir=config_dir, premium_dd_pct=prem_dd, underlying_atr_mult=und_mult
+    )
+    text = format_open_positions_report(rows, errors, premium_dd_pct=prem_dd, underlying_atr_mult=und_mult)
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(text, encoding="utf-8")
+    return text
+
+
 async def run_postmortem(
     db_path: Path,
     *,

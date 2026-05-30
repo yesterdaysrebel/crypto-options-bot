@@ -129,6 +129,34 @@ def analyze_directional(
     raise typer.Exit(code=0)
 
 
+@cli.command("analyze-open")
+def analyze_open(
+    output: str | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Markdown report path (default: stdout)",
+    ),
+) -> None:
+    """Analyze open Delta positions: entry rationale, errored/orphan status, distance to bot stops."""
+    from bot.analytics.directional_postmortem import run_open_positions_analysis
+
+    settings = Settings()
+    db_path = _db_path_from_settings(settings)
+    if not db_path.is_file():
+        typer.echo(f"DB not found: {db_path}", err=True)
+        raise typer.Exit(code=1)
+    out_path = Path(output) if output else None
+    text = asyncio.run(
+        run_open_positions_analysis(db_path, config_dir=settings.config_dir, output=out_path)
+    )
+    if out_path is None:
+        typer.echo(text)
+    else:
+        typer.echo(f"Wrote {out_path}")
+    raise typer.Exit(code=0)
+
+
 @cli.command()
 def resume(confirm: bool = typer.Option(False, "--confirm")) -> None:
     """Clear the lifetime DD circuit breaker after manual review."""
