@@ -137,6 +137,11 @@ def analyze_open(
         "-o",
         help="Markdown report path (default: stdout)",
     ),
+    all_positions: bool = typer.Option(
+        False,
+        "--all-positions",
+        help="Include non-option products (e.g. XLMUSD perps); default is BTC/ETH options only",
+    ),
 ) -> None:
     """Analyze open Delta positions: entry rationale, errored/orphan status, distance to bot stops."""
     from bot.analytics.directional_postmortem import run_open_positions_analysis
@@ -147,7 +152,14 @@ def analyze_open(
         typer.echo(f"DB not found: {db_path}", err=True)
         raise typer.Exit(code=1)
     out_path = Path(output) if output else None
-    text = asyncio.run(run_open_positions_analysis(db_path, config_dir=settings.config_dir, output=out_path))
+    text = asyncio.run(
+        run_open_positions_analysis(
+            db_path,
+            config_dir=settings.config_dir,
+            output=out_path,
+            options_only=not all_positions,
+        )
+    )
     if out_path is None:
         typer.echo(text)
     else:

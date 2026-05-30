@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from bot.analytics.directional_postmortem import _underlying_sl_metrics
+from bot.analytics.directional_postmortem import _is_bot_option_symbol, _underlying_sl_metrics
+
+
+def test_is_bot_option_symbol() -> None:
+    assert _is_bot_option_symbol("C-BTC-73800-290526")
+    assert _is_bot_option_symbol("P-ETH-2000-290526")
+    assert not _is_bot_option_symbol("XLMUSD")
+    assert not _is_bot_option_symbol("BTCUSD")
 
 
 def test_call_underlying_sl_past_when_spot_drops_one_atr() -> None:
