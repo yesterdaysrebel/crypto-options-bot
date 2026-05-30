@@ -513,6 +513,25 @@ class OpenPositionRow:
     exchange_orders: list[dict[str, Any]]
 
 
+@dataclass
+class SkippedPosition:
+    """Open Delta position that is not a directional BTC/ETH option."""
+
+    product_symbol: str
+    size: float
+    entry_price: float | None
+    unrealized_pnl: float | None
+
+
+def _is_bot_option_symbol(product_symbol: str) -> bool:
+    """True for Delta India option symbols the directional strategy trades (C/P-BTC|ETH-...)."""
+    parts = product_symbol.split("-")
+    if len(parts) < 4:
+        return False
+    prefix, und = parts[0], parts[1]
+    return prefix in ("C", "P") and und in ("BTC", "ETH")
+
+
 def find_trade_for_symbol(db_path: Path, product_symbol: str) -> dict[str, Any] | None:
     """Best-match directional trade row for an open Delta contract symbol."""
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -607,7 +626,8 @@ async def build_open_positions_report(
     config_dir: Path,
     premium_dd_pct: float = 0.50,
     underlying_atr_mult: float = 1.0,
-) -> tuple[list[OpenPositionRow], list[str]]:
+    options_only: bool = True,
+) -> tuple[list[OpenPositionRow], list[SkippedPosition], list[str]]:
     from bot.config.loader import load_strategy_configs
     from bot.config.models import DirectionalConfig, StrategyId
 
@@ -625,14 +645,29 @@ async def build_open_positions_report(
         try:
             positions = await rest.get_positions()
         except DeltaRestError as exc:
-            return [], [f"get_positions: {exc}"]
+            return [], [], [f"get_positions: {exc}"]
 
         open_pos = [p for p in positions if float(p.get("size") or 0) != 0]
         if not open_pos:
-            return [], []
+            return [], [], []
+
+        skipped: list[SkippedPosition] = []
+        for p in open_pos:
+            sym = str(p.get("product_symbol") or "")
+            if options_only and not _is_bot_option_symbol(sym):
+                skipped.append(
+                    SkippedPosition(
+                        product_symbol=sym,
+                        size=float(p.get("size") or 0),
+                        entry_price=_as_float(p.get("entry_price")),
+                        unrealized_pnl=_as_float(p.get("unrealized_pnl")),
+                    )
+                )
 
         for p in open_pos:
             sym = str(p.get("product_symbol") or "")
+            if options_only and not _is_bot_option_symbol(sym):
+                continue
             size = float(p.get("size") or 0)
             ex_entry = _as_float(p.get("entry_price"))
             upnl = _as_float(p.get("unrealized_pnl"))
@@ -750,15 +785,17 @@ async def build_open_positions_report(
                 )
             )
 
-    return rows, errors
+    return rows, skipped, errors
 
 
 def format_open_positions_report(
     rows: list[OpenPositionRow],
+    skipped: list[SkippedPosition],
     errors: list[str],
     *,
     premium_dd_pct: float = 0.50,
     underlying_atr_mult: float = 1.0,
+    options_only: bool = True,
 ) -> str:
     lines = [
         "# Open Delta positions — why entered & stop proximity",
@@ -771,14 +808,20 @@ def format_open_positions_report(
         "",
     ]
     if not rows:
-        lines.append("No open positions (size ≠ 0) on Delta.\n")
+        if options_only:
+            lines.append(
+                "No open **BTC/ETH option** positions on Delta (bot scope: `C-*` / `P-*` on BTC or ETH)."
+            )
+        else:
+            lines.append("No open positions (size != 0) on Delta.")
+        lines.append("")
     for r in rows:
         lines.append(f"## {r.product_symbol} (size={r.size})")
         lines.append("")
         if r.trade_id is not None:
             lines.append(
                 f"- **DB trade** `{r.trade_id}` | status=`{r.trade_status}` | "
-                f"error=`{r.trade_error or '—'}` | entry={r.entry_ts}"
+                f"error=`{r.trade_error or '-'}` | entry={r.entry_ts}"
             )
         else:
             lines.append("- **DB trade:** no matching `signals.intended_symbol` row")
@@ -810,7 +853,7 @@ def format_open_positions_report(
             prem_status = "**AT/ PAST premium stop**" if r.at_premium_sl else "not yet at premium stop"
             lines.append(
                 f"- **Premium stop** (50% DD on option mark): entry **{r.exchange_entry_price}** "
-                f"mark **{r.option_mark}** DD **{dd_s}** — {prem_status}."
+                f"mark **{r.option_mark}** DD **{dd_s}** - {prem_status}."
             )
         lines.append("")
         if r.exchange_orders:
@@ -822,6 +865,20 @@ def format_open_positions_report(
                 )
             lines.append("")
         lines.append("---")
+        lines.append("")
+
+    if skipped:
+        lines.append("## Other open positions (not directional BTC/ETH options)")
+        lines.append("")
+        lines.append(
+            "These are on the same Delta account but **not** from the options bot. "
+            "Manage in Delta UI; they are ignored for entry/stop analysis below."
+        )
+        lines.append("")
+        for s in skipped:
+            lines.append(
+                f"- **{s.product_symbol}**: size={s.size} entry={s.entry_price} uPnL={s.unrealized_pnl}"
+            )
         lines.append("")
 
     if errors:
@@ -836,6 +893,7 @@ async def run_open_positions_analysis(
     *,
     config_dir: Path,
     output: Path | None,
+    options_only: bool = True,
 ) -> str:
     from bot.config.loader import load_strategy_configs
     from bot.config.models import DirectionalConfig, StrategyId
@@ -848,10 +906,21 @@ async def run_open_positions_analysis(
             und_mult = cfg.exits.underlying_atr_mult_stop
             break
 
-    rows, errors = await build_open_positions_report(
-        db_path, config_dir=config_dir, premium_dd_pct=prem_dd, underlying_atr_mult=und_mult
+    rows, skipped, errors = await build_open_positions_report(
+        db_path,
+        config_dir=config_dir,
+        premium_dd_pct=prem_dd,
+        underlying_atr_mult=und_mult,
+        options_only=options_only,
     )
-    text = format_open_positions_report(rows, errors, premium_dd_pct=prem_dd, underlying_atr_mult=und_mult)
+    text = format_open_positions_report(
+        rows,
+        skipped,
+        errors,
+        premium_dd_pct=prem_dd,
+        underlying_atr_mult=und_mult,
+        options_only=options_only,
+    )
     if output is not None:
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(text, encoding="utf-8")
